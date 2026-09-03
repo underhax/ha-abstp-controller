@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connexion à Audiobookshelf Transcoder Proxy",
+        "description": "Entrez l'URL et la clé API de votre instance abstp.",
+        "data": {
+          "url": "URL du serveur proxy",
+          "api_key": "Clé secrète de l'API proxy",
+          "default_speed": "Vitesse de lecture par défaut"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion au service abstp.",
+      "invalid_auth": "Clé secrète API non valide.",
+      "unknown": "Une erreur inattendue est survenue."
+    },
+    "abort": {
+      "already_configured": "Cette instance de proxy est déjà configurée."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options d'Audiobookshelf Transcoder Proxy",
+        "description": "Configurer les paramètres de lecture par défaut.",
+        "data": {
+          "default_speed": "Vitesse de lecture par défaut"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "État du serveur"
+      },
+      "books_count": {
+        "name": "Nombre de livres audio"
+      },
+      "podcasts_count": {
+        "name": "Nombre de podcasts"
+      }
+    },
+    "number": {
+      "default_speed": {
+        "name": "Vitesse par défaut"
+      }
+    },
+    "button": {
+      "refresh_library": {
+        "name": "Actualiser la bibliothèque"
+      }
+    }
+  },
+  "services": {
+    "play": {
+      "name": "Lire le média",
+      "description": "Démarre la lecture audio transcodée sur les lecteurs cibles.",
+      "fields": {
+        "entity_id": {
+          "name": "Lecteur multimédia",
+          "description": "Lecteur multimédia cible ou liste de lecteurs."
+        },
+        "item_id": {
+          "name": "ID de l'élément",
+          "description": "Identifiant du livre audio ou du podcast."
+        },
+        "episode_id": {
+          "name": "ID de l'épisode",
+          "description": "Identifiant de l'épisode de podcast."
+        },
+        "speed": {
+          "name": "Vitesse",
+          "description": "Multiplicateur de vitesse de lecture."
+        },
+        "current_time": {
+          "name": "Position de départ",
+          "description": "Décalage de départ en secondes."
+        }
+      }
+    },
+    "stop": {
+      "name": "Arrêter le média",
+      "description": "Arrête la lecture et enregistre la progression dans Audiobookshelf.",
+      "fields": {
+        "entity_id": {
+          "name": "Lecteur multimédia",
+          "description": "Lecteur multimédia cible."
+        },
+        "session_id": {
+          "name": "ID de session",
+          "description": "Identifiant de session proxy."
+        }
+      }
+    },
+    "set_speed": {
+      "name": "Modifier la vitesse",
+      "description": "Modifie la vitesse de lecture à la volée de manière fluide.",
+      "fields": {
+        "entity_id": {
+          "name": "Lecteur multimédia",
+          "description": "Lecteur multimédia actif."
+        },
+        "speed": {
+          "name": "Vitesse",
+          "description": "Nouvelle vitesse de lecture."
+        }
+      }
+    },
+    "refresh_library": {
+      "name": "Actualiser le catalogue",
+      "description": "Recharge le cache du catalogue."
+    }
+  }
+}

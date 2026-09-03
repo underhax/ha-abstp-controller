@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Verbindung zu Audiobookshelf Transcoder Proxy",
+        "description": "Geben Sie die URL und den API-Schlüssel Ihrer abstp-Instanz ein.",
+        "data": {
+          "url": "Proxy-Server-URL",
+          "api_key": "Geheimer Proxy-API-Schlüssel",
+          "default_speed": "Standard-Wiedergabegeschwindigkeit"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum abstp-Dienst fehlgeschlagen.",
+      "invalid_auth": "Ungültiger API-Schlüssel.",
+      "unknown": "Unerwarteter Fehler aufgetreten."
+    },
+    "abort": {
+      "already_configured": "Diese Proxy-Instanz ist bereits konfiguriert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Audiobookshelf Transcoder Proxy Optionen",
+        "description": "Standard-Wiedergabeeinstellungen konfigurieren.",
+        "data": {
+          "default_speed": "Standard-Wiedergabegeschwindigkeit"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Serverstatus"
+      },
+      "books_count": {
+        "name": "Hörbücher-Anzahl"
+      },
+      "podcasts_count": {
+        "name": "Podcasts-Anzahl"
+      }
+    },
+    "number": {
+      "default_speed": {
+        "name": "Standardgeschwindigkeit"
+      }
+    },
+    "button": {
+      "refresh_library": {
+        "name": "Bibliothek aktualisieren"
+      }
+    }
+  },
+  "services": {
+    "play": {
+      "name": "Medien abspielen",
+      "description": "Startet die transkodierte Audiowiedergabe auf Ziel-Mediaplayern.",
+      "fields": {
+        "entity_id": {
+          "name": "Mediaplayer",
+          "description": "Ziel-Mediaplayer oder Liste von Playern."
+        },
+        "item_id": {
+          "name": "Element-ID",
+          "description": "Hörbuch- oder Podcast-ID."
+        },
+        "episode_id": {
+          "name": "Episoden-ID",
+          "description": "Podcast-Episoden-ID."
+        },
+        "speed": {
+          "name": "Geschwindigkeit",
+          "description": "Wiedergabegeschwindigkeits-Multiplikator."
+        },
+        "current_time": {
+          "name": "Startposition",
+          "description": "Startposition in Sekunden."
+        }
+      }
+    },
+    "stop": {
+      "name": "Medien stoppen",
+      "description": "Stoppt die Wiedergabe und speichert den Fortschritt.",
+      "fields": {
+        "entity_id": {
+          "name": "Mediaplayer",
+          "description": "Ziel-Mediaplayer."
+        },
+        "session_id": {
+          "name": "Sitzungs-ID",
+          "description": "Proxy-Sitzungskennung."
+        }
+      }
+    },
+    "set_speed": {
+      "name": "Geschwindigkeit ändern",
+      "description": "Ändert die Wiedergabegeschwindigkeit nahtlos während der Wiedergabe.",
+      "fields": {
+        "entity_id": {
+          "name": "Mediaplayer",
+          "description": "Aktiver Mediaplayer."
+        },
+        "speed": {
+          "name": "Geschwindigkeit",
+          "description": "Neue Wiedergabegeschwindigkeit."
+        }
+      }
+    },
+    "refresh_library": {
+      "name": "Bibliothek aktualisieren",
+      "description": "Lädt den Katalog-Cache neu."
+    }
+  }
+}

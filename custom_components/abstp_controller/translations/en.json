@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Audiobookshelf Transcoder Proxy",
+        "description": "Enter the URL and API key of your abstp instance.",
+        "data": {
+          "url": "Proxy Server URL",
+          "api_key": "Proxy API Secret Key",
+          "default_speed": "Default Playback Speed"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the abstp proxy service.",
+      "invalid_auth": "Invalid API secret key.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This proxy instance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Audiobookshelf Transcoder Proxy Options",
+        "description": "Configure default playback settings.",
+        "data": {
+          "default_speed": "Default Playback Speed"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Server Status"
+      },
+      "books_count": {
+        "name": "Audiobooks Count"
+      },
+      "podcasts_count": {
+        "name": "Podcasts Count"
+      }
+    },
+    "number": {
+      "default_speed": {
+        "name": "Default Speed"
+      }
+    },
+    "button": {
+      "refresh_library": {
+        "name": "Refresh Library"
+      }
+    }
+  },
+  "services": {
+    "play": {
+      "name": "Play Media",
+      "description": "Starts transcoded audio playback on target media players.",
+      "fields": {
+        "entity_id": {
+          "name": "Media Player",
+          "description": "Target media player entity or entities."
+        },
+        "item_id": {
+          "name": "Item ID",
+          "description": "Audiobook or podcast ID."
+        },
+        "episode_id": {
+          "name": "Episode ID",
+          "description": "Podcast episode ID."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "Playback speed multiplier."
+        },
+        "current_time": {
+          "name": "Start Position",
+          "description": "Start position offset in seconds."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop Media",
+      "description": "Stops playback and commits progress.",
+      "fields": {
+        "entity_id": {
+          "name": "Media Player",
+          "description": "Target media player entity."
+        },
+        "session_id": {
+          "name": "Session ID",
+          "description": "Session identifier."
+        }
+      }
+    },
+    "set_speed": {
+      "name": "Set Speed",
+      "description": "Changes playback speed on-the-fly.",
+      "fields": {
+        "entity_id": {
+          "name": "Media Player",
+          "description": "Target media player entity."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "New playback speed multiplier."
+        }
+      }
+    },
+    "refresh_library": {
+      "name": "Refresh Library",
+      "description": "Reloads the catalog cache."
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Підключення до Audiobookshelf Transcoder Proxy",
+        "description": "Введіть адресу та API ключ вашого екземпляра abstp.",
+        "data": {
+          "url": "URL-адреса проксі-сервера",
+          "api_key": "Секретний API ключ проксі",
+          "default_speed": "Швидкість відтворення за замовчуванням"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не вдалося підключитися до сервісу abstp.",
+      "invalid_auth": "Недійсний секретний API ключ.",
+      "unknown": "Сталася неочікувана помилка."
+    },
+    "abort": {
+      "already_configured": "Цей проксі-сервер уже налаштовано."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Параметри Audiobookshelf Transcoder Proxy",
+        "description": "Налаштування параметрів відтворення за замовчуванням.",
+        "data": {
+          "default_speed": "Швидкість відтворення за замовчуванням"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Статус сервера"
+      },
+      "books_count": {
+        "name": "Кількість аудіокниг"
+      },
+      "podcasts_count": {
+        "name": "Кількість подкастів"
+      }
+    },
+    "number": {
+      "default_speed": {
+        "name": "Швидкість за замовчуванням"
+      }
+    },
+    "button": {
+      "refresh_library": {
+        "name": "Оновити бібліотеку"
+      }
+    }
+  },
+  "services": {
+    "play": {
+      "name": "Відтворити медіа",
+      "description": "Запускає транскодований аудіопотік на вибраних медіаплеєрах.",
+      "fields": {
+        "entity_id": {
+          "name": "Медіаплеєр",
+          "description": "Цільовий медіаплеєр або список плеєрів."
+        },
+        "item_id": {
+          "name": "ID елемента",
+          "description": "Ідентифікатор аудіокниги або подкасту."
+        },
+        "episode_id": {
+          "name": "ID епізоду",
+          "description": "Ідентифікатор конкретного епізоду подкасту."
+        },
+        "speed": {
+          "name": "Швидкість",
+          "description": "Множник швидкості відтворення."
+        },
+        "current_time": {
+          "name": "Початкова позиція",
+          "description": "Зсув початку у секундах."
+        }
+      }
+    },
+    "stop": {
+      "name": "Зупинити медіа",
+      "description": "Зупиняє сесію та фіксує прогрес в Audiobookshelf.",
+      "fields": {
+        "entity_id": {
+          "name": "Медіаплеєр",
+          "description": "Цільовий медіаплеєр."
+        },
+        "session_id": {
+          "name": "ID сесії",
+          "description": "Ідентифікатор сесії проксі."
+        }
+      }
+    },
+    "set_speed": {
+      "name": "Змінити швидкість",
+      "description": "Безшовно змінює швидкість відтворення на льоту.",
+      "fields": {
+        "entity_id": {
+          "name": "Медіаплеєр",
+          "description": "Активний медіаплеєр."
+        },
+        "speed": {
+          "name": "Швидкість",
+          "description": "Нова швидкість відтворення."
+        }
+      }
+    },
+    "refresh_library": {
+      "name": "Оновити каталог",
+      "description": "Примусово перезавантажує кеш медіатеки."
+    }
+  }
+}

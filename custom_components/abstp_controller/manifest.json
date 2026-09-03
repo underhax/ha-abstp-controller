@@ -1,0 +1,12 @@
+{
+  "domain": "abstp_controller",
+  "name": "Audiobookshelf Transcoder Proxy Controller",
+  "version": "0.0.1-dev",
+  "documentation": "https://github.com/underhax/ha-abstp-controller",
+  "issue_tracker": "https://github.com/underhax/ha-abstp-controller/issues",
+  "codeowners": ["@underhax"],
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "config_flow": true,
+  "dependencies": ["media_source", "http", "websocket_api"]
+}

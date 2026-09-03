@@ -1,0 +1,28 @@
+{
+  "dependencies": {
+    "custom-card-helpers": "^2.0.0",
+    "lit": "^3.1.2",
+    "lit-element": "^4.2.2",
+    "lit-html": "^3.3.3"
+  },
+  "description": "Custom Lovelace Card for Audiobookshelf Transcoder Proxy",
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.11",
+    "happy-dom": "^20.11.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-compression2": "^2.5.3",
+    "vite-plugin-css-injected-by-js": "^5.0.2",
+    "vitest": "^4.1.11"
+  },
+  "name": "abstp-player-card",
+  "scripts": {
+    "build": "tsc && vite build",
+    "coverage": "vitest run --coverage",
+    "dev": "vite",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "type": "module",
+  "version": "0.0.1-dev"
+}

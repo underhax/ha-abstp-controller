@@ -1,0 +1,97 @@
+play:
+  name: Play Media
+  description: Starts transcoded audio playback on target media players with optional tempo adjustment.
+  fields:
+    entity_id:
+      name: Media Player
+      description: Target media player entity or list of entities.
+      required: true
+      selector:
+        entity:
+          domain: media_player
+          multiple: true
+    item_id:
+      name: Item ID
+      description: Identifier of the audiobook or podcast collection in Audiobookshelf.
+      required: true
+      example: "book_019234"
+      selector:
+        text:
+    episode_id:
+      name: Episode ID
+      description: Identifier of the specific podcast episode (required when playing podcasts).
+      required: false
+      example: "ep_019234"
+      selector:
+        text:
+    speed:
+      name: Speed
+      description: Playback speed multiplier (0.75x to 3.0x).
+      required: false
+      example: 1.25
+      default: 1.0
+      selector:
+        number:
+          min: 0.75
+          max: 3.0
+          step: 0.05
+          unit_of_measurement: "x"
+    current_time:
+      name: Start Position
+      description: Playback start position in seconds (defaults to saved progress in Audiobookshelf).
+      required: false
+      example: 120.5
+      default: 0.0
+      selector:
+        number:
+          min: 0
+          max: 864000
+          step: 1
+          unit_of_measurement: "s"
+
+stop:
+  name: Stop Media
+  description: Stops active playback sessions on specified players or by session identifier.
+  fields:
+    entity_id:
+      name: Media Player
+      description: Media player entity or entities to stop.
+      required: false
+      selector:
+        entity:
+          domain: media_player
+          multiple: true
+    session_id:
+      name: Session ID
+      description: Proxy session identifier to terminate directly.
+      required: false
+      example: "sess_019234ab"
+      selector:
+        text:
+
+set_speed:
+  name: Set Speed
+  description: Dynamically changes playback speed during active playback with seamless restart.
+  fields:
+    entity_id:
+      name: Media Player
+      description: Active media player entity.
+      required: true
+      selector:
+        entity:
+          domain: media_player
+    speed:
+      name: Speed
+      description: Target playback speed multiplier (0.75x to 3.0x).
+      required: true
+      example: 1.5
+      selector:
+        number:
+          min: 0.75
+          max: 3.0
+          step: 0.05
+          unit_of_measurement: "x"
+
+refresh_library:
+  name: Refresh Library
+  description: Triggers an immediate reload of the media catalog from the abstp instance.
