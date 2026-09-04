@@ -80,6 +80,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 else "",
                 "duration": b.duration,
                 "progress": b.progress,
+                "is_finished": b.is_finished,
             }
             for b in coordinator.data.books
         ]
@@ -94,8 +95,27 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 else "",
                 "duration": p.duration,
                 "progress": p.progress,
+                "is_finished": p.is_finished,
             }
             for p in coordinator.data.podcasts
+        ]
+        in_progress_data = [
+            {
+                "id": item.id,
+                "title": item.title,
+                "author": item.author,
+                "media_type": item.media_type,
+                "cover_url": f"/api/abstp_controller/cover/{item.id}"
+                if item.cover_url
+                else "",
+                "duration": item.duration,
+                "progress": item.progress,
+                "current_time": item.current_time,
+                "episode_id": item.episode_id,
+                "episode_title": item.episode_title,
+                "narrator": item.narrator,
+            }
+            for item in coordinator.data.in_progress
         ]
 
         tracker = _get_active_tracker(hass_inst)
@@ -117,6 +137,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 "healthy": coordinator.data.healthy,
                 "books": books_data,
                 "podcasts": podcasts_data,
+                "in_progress": in_progress_data,
                 "active_sessions": active_sessions_data,
             },
         )
@@ -154,6 +175,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                     "published_at": ep.published_at,
                     "duration": ep.duration,
                     "progress": ep.progress,
+                    "is_finished": ep.is_finished,
                 }
                 for ep in episodes
             ]

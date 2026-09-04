@@ -3,7 +3,22 @@ export interface MediaItem {
   cover_url: string;
   duration: number;
   id: string;
+  is_finished?: boolean;
   media_type: 'book' | 'podcast';
+  progress: number;
+  title: string;
+}
+
+export interface InProgressItem {
+  author: string;
+  cover_url: string;
+  current_time: number;
+  duration: number;
+  episode_id?: string | null;
+  episode_title?: string | null;
+  id: string;
+  media_type: 'book' | 'podcast';
+  narrator?: string | null;
   progress: number;
   title: string;
 }
@@ -12,6 +27,7 @@ export interface PodcastEpisode {
   duration: number;
   episode?: string;
   id: string;
+  is_finished?: boolean;
   podcast_id?: string;
   podcast_title?: string;
   progress: number;

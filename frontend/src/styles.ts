@@ -48,6 +48,12 @@ export const cardStyles: CSSResult = css`
   }
 
   .icon-spin {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
     animation: abstp-spin 1.2s linear infinite;
   }
 
@@ -348,6 +354,7 @@ export const cardStyles: CSSResult = css`
     position: relative;
   }
 
+  .speed-pill-btn:hover,
   .ctrl-btn:hover {
     opacity: 0.75;
   }
@@ -360,8 +367,8 @@ export const cardStyles: CSSResult = css`
   }
 
   .ctrl-btn.icon-btn .icon {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
   }
 
   .ctrl-btn.icon-btn.active {
@@ -375,8 +382,13 @@ export const cardStyles: CSSResult = css`
   }
   .ctrl-btn-rewind .icon,
   .ctrl-btn-forward .icon {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
+  }
+
+  .skip-value {
+    position: absolute;
+    font-size: 10px;
   }
 
   .ctrl-btn-play {
@@ -468,7 +480,6 @@ export const cardStyles: CSSResult = css`
     user-select: none;
   }
 
-  .speed-pill-btn:hover,
   .speed-pill-btn.active {
     color: var(--abstp-primary);
     opacity: 1;
@@ -524,7 +535,6 @@ export const cardStyles: CSSResult = css`
 
   .speed-preset-btn.active {
     background: rgba(255, 255, 255, 0.25);
-    border-color: var(--abstp-border);
   }
 
   .speed-popover-adjust {
@@ -553,8 +563,8 @@ export const cardStyles: CSSResult = css`
   }
 
   .speed-adjust-btn .icon {
-    width: 14px;
-    height: 14px;
+    width: 22px;
+    height: 22px;
   }
 
   .speed-adjust-btn:disabled,
@@ -724,7 +734,6 @@ export const cardStyles: CSSResult = css`
   }
 
   .media-card:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
     border-color: var(--abstp-primary);
   }
@@ -785,6 +794,12 @@ export const cardStyles: CSSResult = css`
     background: var(--abstp-accent);
   }
 
+  .progress-bar-fill.finished {
+    height: 100%;
+    background: #22c55e;
+    width: 100% !important;
+  }
+
   .card-info {
     padding: 8px;
     display: flex;
@@ -800,6 +815,7 @@ export const cardStyles: CSSResult = css`
     font-weight: 600;
     line-height: 1.25;
     color: var(--primary-text-color, #ffffff);
+    min-height: 2.5em;
     max-height: 2.5em;
     display: -webkit-box;
     -webkit-line-clamp: 2;

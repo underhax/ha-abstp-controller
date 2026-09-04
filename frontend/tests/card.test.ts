@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AbstpPlayerCard } from '../src/abstp-player-card.ts';
 import { AbstpPlayerCardEditor } from '../src/abstp-player-card-editor.ts';
+import type { InProgressItem } from '../src/types.ts';
 
 describe('AbstpPlayerCard', (): void => {
   it('creates stub configuration with default values', (): void => {
@@ -147,6 +148,169 @@ describe('AbstpPlayerCard', (): void => {
 
     expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
     expect((card as unknown as { currentItem: { id: string } }).currentItem.id).toBe('new_book');
+  });
+
+  it('initializes with activeTab set to in_progress', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    expect((card as unknown as { activeTab: string }).activeTab).toBe('in_progress');
+  });
+
+  it('switches to in_progress tab and marks tab as user selected', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { activeTab: string }).activeTab = 'books';
+    (card as unknown as { selectedPodcastId: string | null }).selectedPodcastId = 'pod_1';
+    (card as unknown as { handleTabInProgress: () => void }).handleTabInProgress();
+
+    expect((card as unknown as { activeTab: string }).activeTab).toBe('in_progress');
+    expect((card as unknown as { selectedPodcastId: string | null }).selectedPodcastId).toBeNull();
+    expect((card as unknown as { userSelectedTab: boolean }).userSelectedTab).toBe(true);
+  });
+
+  it('filters in_progress items by title, author, or episode title', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { inProgress: InProgressItem[] }).inProgress = [
+      {
+        author: 'Author One',
+        cover_url: 'https://example.com/cover1.jpg',
+        current_time: 120,
+        duration: 3600,
+        id: 'item_1',
+        media_type: 'book',
+        progress: 120,
+        title: 'Book One',
+      },
+      {
+        author: 'Author Two',
+        cover_url: 'https://example.com/cover2.jpg',
+        current_time: 300,
+        duration: 1800,
+        episode_id: 'ep_1',
+        episode_title: 'Special Episode',
+        id: 'item_2',
+        media_type: 'podcast',
+        progress: 300,
+        title: 'Podcast Two',
+      },
+    ];
+
+    (card as unknown as { searchQuery: string }).searchQuery = 'special';
+    let filtered: InProgressItem[] = (
+      card as unknown as { getFilteredInProgress: () => InProgressItem[] }
+    ).getFilteredInProgress();
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.id).toBe('item_2');
+
+    (card as unknown as { searchQuery: string }).searchQuery = 'author one';
+    filtered = (
+      card as unknown as { getFilteredInProgress: () => InProgressItem[] }
+    ).getFilteredInProgress();
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.id).toBe('item_1');
+
+    (card as unknown as { searchQuery: string }).searchQuery = 'nonexistent';
+    filtered = (
+      card as unknown as { getFilteredInProgress: () => InProgressItem[] }
+    ).getFilteredInProgress();
+    expect(filtered).toHaveLength(0);
+  });
+
+  it('selects an in_progress item and sets playback position from progress', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const inProgressItem: InProgressItem = {
+      author: 'Test Author',
+      cover_url: 'https://example.com/cover.jpg',
+      current_time: 450,
+      duration: 3600,
+      id: 'in_progress_book',
+      media_type: 'book',
+      progress: 450,
+      title: 'In Progress Book',
+    };
+
+    await (
+      card as unknown as {
+        handleSelectItem: (item: InProgressItem) => Promise<void>;
+      }
+    ).handleSelectItem(inProgressItem);
+
+    expect((card as unknown as { currentItem: InProgressItem | null }).currentItem?.id).toBe(
+      'in_progress_book',
+    );
+    expect((card as unknown as { playbackPosition: number }).playbackPosition).toBe(450);
+    expect((card as unknown as { playbackDuration: number }).playbackDuration).toBe(3600);
+  });
+
+  it('resolves item IDs correctly for podcast episodes and in_progress podcast items', (): void => {
+    const resolveIds = (
+      AbstpPlayerCard as unknown as {
+        resolveItemIds: (item: unknown) => { episodeId?: string; itemId: string };
+      }
+    ).resolveItemIds;
+
+    const bookItem = { id: 'book_123' };
+    expect(resolveIds(bookItem)).toEqual({ itemId: 'book_123' });
+
+    const podcastEpisode = { id: 'ep_456', podcast_id: 'pod_789' };
+    expect(resolveIds(podcastEpisode)).toEqual({ episodeId: 'ep_456', itemId: 'pod_789' });
+
+    const inProgressPodcast = { episode_id: 'ep_456', id: 'pod_789' };
+    expect(resolveIds(inProgressPodcast)).toEqual({ episodeId: 'ep_456', itemId: 'pod_789' });
+  });
+
+  it('resolves initial position from current_time for in_progress items', (): void => {
+    const resolvePos = (
+      AbstpPlayerCard as unknown as {
+        resolveInitialPosition: (item: unknown, startTime?: number) => number;
+      }
+    ).resolveInitialPosition;
+
+    const inProgressItem: InProgressItem = {
+      author: 'Author',
+      cover_url: 'https://example.com/cover.jpg',
+      current_time: 500,
+      duration: 3600,
+      id: 'in_prog_1',
+      media_type: 'book',
+      progress: 500,
+      title: 'Book',
+    };
+
+    expect(resolvePos(inProgressItem)).toBe(500);
+    expect(resolvePos(inProgressItem, 120)).toBe(120);
+  });
+
+  it('filters finished and in-progress books based on is_finished', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { books: unknown[] }).books = [
+      {
+        author: 'A1',
+        duration: 1000,
+        id: 'b1',
+        is_finished: false,
+        progress: 200,
+        title: 'Active Book',
+      },
+      {
+        author: 'A2',
+        duration: 1000,
+        id: 'b2',
+        is_finished: true,
+        progress: 1000,
+        title: 'Finished Book',
+      },
+    ];
+
+    (card as unknown as { filterProgress: string }).filterProgress = 'finished';
+    let filtered: unknown[] = (
+      card as unknown as { getFilteredBooks: () => unknown[] }
+    ).getFilteredBooks();
+    expect(filtered).toHaveLength(1);
+    expect((filtered[0] as { id: string }).id).toBe('b2');
+
+    (card as unknown as { filterProgress: string }).filterProgress = 'in_progress';
+    filtered = (card as unknown as { getFilteredBooks: () => unknown[] }).getFilteredBooks();
+    expect(filtered).toHaveLength(1);
+    expect((filtered[0] as { id: string }).id).toBe('b1');
   });
 });
 

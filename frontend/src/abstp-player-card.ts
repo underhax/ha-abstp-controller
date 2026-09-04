@@ -36,6 +36,7 @@ import type {
   ActiveSessionInfo,
   HassEntity,
   HomeAssistant,
+  InProgressItem,
   MediaItem,
   PlaySession,
   PodcastEpisode,
@@ -48,19 +49,20 @@ export class AbstpPlayerCard extends LitElement {
 
   @property({ attribute: false }) public hass?: HomeAssistant;
   @state() private config?: AbstpCardConfig;
-  @state() private activeTab: 'books' | 'podcasts' = 'books';
+  @state() private activeTab: 'in_progress' | 'books' | 'podcasts' = 'in_progress';
   @state() private showLibrary: boolean = false;
   @state() private showSpeedPopover: boolean = false;
   @state() private showVolumePopover: boolean = false;
   @state() private showDeviceMenu: boolean = false;
   @state() private books: MediaItem[] = [];
   @state() private podcasts: MediaItem[] = [];
+  @state() private inProgress: InProgressItem[] = [];
   @state() private episodes: Record<string, PodcastEpisode[]> = {};
   @state() private selectedPodcastId: string | null = null;
   @state() private searchQuery: string = '';
   @state() private filterProgress: 'all' | 'in_progress' | 'finished' = 'all';
   @state() private currentSession: PlaySession | null = null;
-  @state() private currentItem: MediaItem | PodcastEpisode | null = null;
+  @state() private currentItem: MediaItem | PodcastEpisode | InProgressItem | null = null;
   @state() private selectedPlayer: string = '';
   @state() private currentSpeed: number = DEFAULT_PLAYBACK_SPEED;
   @state() private speedOnOpen: number = DEFAULT_PLAYBACK_SPEED;
@@ -75,6 +77,7 @@ export class AbstpPlayerCard extends LitElement {
 
   private browserPlayer: BrowserAudioPlayer = new BrowserAudioPlayer();
   private libraryLoaded: boolean = false;
+  private userSelectedTab: boolean = false;
   private speakerTimer: number | null = null;
   private awaitingPlaybackStart: boolean = false;
   private speedHoldTimer: number | null = null;
@@ -444,8 +447,9 @@ export class AbstpPlayerCard extends LitElement {
     return undefined;
   }
 
-  private findSavedItem(itemId: string): MediaItem | undefined {
+  private findSavedItem(itemId: string): MediaItem | InProgressItem | undefined {
     return (
+      this.inProgress.find((i: InProgressItem): boolean => i.id === itemId) ||
       this.books.find((b: MediaItem): boolean => b.id === itemId) ||
       this.podcasts.find((p: MediaItem): boolean => p.id === itemId)
     );
@@ -463,7 +467,9 @@ export class AbstpPlayerCard extends LitElement {
     if (!activeSession) {
       return false;
     }
-    const matchedItem: MediaItem | undefined = this.findSavedItem(activeSession.item_id);
+    const matchedItem: MediaItem | InProgressItem | undefined = this.findSavedItem(
+      activeSession.item_id,
+    );
     if (!matchedItem) {
       return false;
     }
@@ -484,10 +490,11 @@ export class AbstpPlayerCard extends LitElement {
     const lastItemId: string | null = AbstpPlayerCard.getStorageItem(
       this.getCardStorageKey('last_item_id'),
     );
-    const savedItem: MediaItem | undefined = lastItemId
+    const savedItem: MediaItem | InProgressItem | undefined = lastItemId
       ? this.findSavedItem(lastItemId)
       : undefined;
-    const targetItem: MediaItem | undefined = savedItem ?? this.books[0];
+    const targetItem: MediaItem | InProgressItem | undefined =
+      savedItem ?? this.inProgress[0] ?? this.books[0];
     if (!targetItem) {
       return;
     }
@@ -509,16 +516,28 @@ export class AbstpPlayerCard extends LitElement {
       const response = await this.hass.callWS<{
         active_sessions?: Record<string, ActiveSessionInfo>;
         books: MediaItem[];
+        in_progress?: InProgressItem[];
         podcasts: MediaItem[];
       }>({
         type: 'abstp_controller/get_library',
       });
       this.books = response.books;
       this.podcasts = response.podcasts;
+      this.inProgress = response.in_progress ?? [];
+      if (!this.userSelectedTab) {
+        if (this.inProgress.length > 0) {
+          this.activeTab = 'in_progress';
+        } else if (!this.config?.hide_books) {
+          this.activeTab = 'books';
+        } else if (!this.config?.hide_podcasts) {
+          this.activeTab = 'podcasts';
+        }
+      }
       this.restoreActiveOrSavedItem(response.active_sessions || {});
     } catch {
       this.books = [];
       this.podcasts = [];
+      this.inProgress = [];
     } finally {
       this.isRefreshing = false;
     }
@@ -562,22 +581,28 @@ export class AbstpPlayerCard extends LitElement {
     }
   }
 
-  private static resolveItemIds(item: MediaItem | PodcastEpisode): {
+  private static resolveItemIds(item: MediaItem | PodcastEpisode | InProgressItem): {
     episodeId?: string | undefined;
     itemId: string;
   } {
     if ('podcast_id' in item && item.podcast_id) {
       return { episodeId: item.id, itemId: item.podcast_id };
     }
+    if ('episode_id' in item && item.episode_id) {
+      return { episodeId: item.episode_id, itemId: item.id };
+    }
     return { itemId: item.id };
   }
 
   private static resolveInitialPosition(
-    item: MediaItem | PodcastEpisode,
+    item: MediaItem | PodcastEpisode | InProgressItem,
     startTime?: number,
   ): number {
     if (startTime !== undefined && Number.isFinite(startTime) && startTime >= 0) {
       return startTime;
+    }
+    if ('current_time' in item && typeof item.current_time === 'number' && item.current_time > 0) {
+      return item.current_time;
     }
     const savedPos: string | null = AbstpPlayerCard.getStorageItem(`abstp_pos_${item.id}`);
     if (savedPos !== null) {
@@ -590,7 +615,7 @@ export class AbstpPlayerCard extends LitElement {
   }
 
   private async handlePlayItem(
-    item: MediaItem | PodcastEpisode,
+    item: MediaItem | PodcastEpisode | InProgressItem,
     startTime?: number,
   ): Promise<void> {
     if (!this.hass) {
@@ -751,16 +776,13 @@ export class AbstpPlayerCard extends LitElement {
     this.handleSpeedAdjust(clamped);
   }
 
-  private async handleSelectItem(item: MediaItem | PodcastEpisode): Promise<void> {
+  private async handleSelectItem(item: MediaItem | PodcastEpisode | InProgressItem): Promise<void> {
     if (this.isPlaying || this.isBuffering) {
       await this.handleStop();
     }
     this.currentItem = item;
     AbstpPlayerCard.setStorageItem(this.getCardStorageKey('last_item_id'), item.id);
-    const savedPos: string | null = AbstpPlayerCard.getStorageItem(`abstp_pos_${item.id}`);
-    const initialPosition: number =
-      savedPos !== null ? Number.parseFloat(savedPos) : Math.max(0, item.progress || 0);
-    this.playbackPosition = initialPosition;
+    this.playbackPosition = AbstpPlayerCard.resolveInitialPosition(item);
     this.playbackDuration = item.duration || 0;
     this.isPlaying = false;
     this.isBuffering = false;
@@ -879,12 +901,20 @@ export class AbstpPlayerCard extends LitElement {
     this.searchQuery = (e.target as HTMLInputElement).value;
   }
 
+  private handleTabInProgress(): void {
+    this.userSelectedTab = true;
+    this.activeTab = 'in_progress';
+    this.selectedPodcastId = null;
+  }
+
   private handleTabBooks(): void {
+    this.userSelectedTab = true;
     this.activeTab = 'books';
     this.selectedPodcastId = null;
   }
 
   private handleTabPodcasts(): void {
+    this.userSelectedTab = true;
     this.activeTab = 'podcasts';
   }
 
@@ -945,6 +975,20 @@ export class AbstpPlayerCard extends LitElement {
     this.showDeviceMenu = false;
   }
 
+  private getFilteredInProgress(): InProgressItem[] {
+    const query: string = this.searchQuery.toLowerCase();
+    return this.inProgress.filter((item: InProgressItem): boolean => {
+      const title: string = item.title || '';
+      const author: string = item.author || '';
+      const epTitle: string = item.episode_title ?? '';
+      return (
+        title.toLowerCase().includes(query) ||
+        author.toLowerCase().includes(query) ||
+        epTitle.toLowerCase().includes(query)
+      );
+    });
+  }
+
   private getFilteredBooks(): MediaItem[] {
     const query: string = this.searchQuery.toLowerCase();
     return this.books.filter((b: MediaItem): boolean => {
@@ -956,10 +1000,10 @@ export class AbstpPlayerCard extends LitElement {
         return false;
       }
       if (this.filterProgress === 'in_progress') {
-        return b.progress > 0 && b.progress < b.duration;
+        return !b.is_finished && b.progress > 0 && b.progress < b.duration;
       }
       if (this.filterProgress === 'finished') {
-        return b.progress >= b.duration && b.duration > 0;
+        return Boolean(b.is_finished) || (b.progress >= b.duration && b.duration > 0);
       }
       return true;
     });
@@ -1007,6 +1051,7 @@ export class AbstpPlayerCard extends LitElement {
       allowedPlayers = allPlayers.filter((id: string): boolean => allowed.includes(id));
     }
 
+    const filteredInProgress: InProgressItem[] = this.getFilteredInProgress();
     const filteredBooks: MediaItem[] = this.getFilteredBooks();
     const filteredPodcasts: MediaItem[] = this.getFilteredPodcasts();
 
@@ -1016,7 +1061,7 @@ export class AbstpPlayerCard extends LitElement {
 
         ${
           this.showLibrary
-            ? this.renderLibrarySection(filteredBooks, filteredPodcasts, lang)
+            ? this.renderLibrarySection(filteredInProgress, filteredBooks, filteredPodcasts, lang)
             : html``
         }
       </ha-card>
@@ -1189,7 +1234,9 @@ export class AbstpPlayerCard extends LitElement {
     `;
   }
 
-  private static resolveHeroCoverAndAuthor(item: MediaItem | PodcastEpisode | null): {
+  private static resolveHeroCoverAndAuthor(
+    item: MediaItem | PodcastEpisode | InProgressItem | null,
+  ): {
     coverId: string;
     author: string;
   } {
@@ -1198,11 +1245,13 @@ export class AbstpPlayerCard extends LitElement {
     }
     const coverId: string = 'podcast_id' in item && item.podcast_id ? item.podcast_id : item.id;
     const author: string =
-      'author' in item && item.author
-        ? item.author
-        : 'podcast_title' in item && item.podcast_title
-          ? (item.podcast_title as string)
-          : '';
+      'episode_title' in item && item.episode_title
+        ? item.title
+        : 'author' in item && item.author
+          ? item.author
+          : 'podcast_title' in item && item.podcast_title
+            ? (item.podcast_title as string)
+            : '';
     return { author, coverId };
   }
 
@@ -1245,8 +1294,12 @@ export class AbstpPlayerCard extends LitElement {
   }
 
   private renderHeroPlayer(lang: string, allowedPlayers: string[]): TemplateResult {
-    const item: MediaItem | PodcastEpisode | null = this.currentItem;
-    const title: string = item ? item.title : localize('card.no_active_track', lang);
+    const item: MediaItem | PodcastEpisode | InProgressItem | null = this.currentItem;
+    const title: string = item
+      ? 'episode_title' in item && item.episode_title
+        ? item.episode_title
+        : item.title
+      : localize('card.no_active_track', lang);
     const { coverId, author } = AbstpPlayerCard.resolveHeroCoverAndAuthor(item);
     const {
       effectiveDuration,
@@ -1334,6 +1387,7 @@ export class AbstpPlayerCard extends LitElement {
           title="${localize('card.skip_backward', lang, { s: skipSec })}"
         >
           ${undoIcon}
+          <span class="skip-value">${skipSec}</span>
         </button>
 
         <button
@@ -1364,6 +1418,7 @@ export class AbstpPlayerCard extends LitElement {
           title="${localize('card.skip_forward', lang, { s: skipSec })}"
         >
           ${redoIcon}
+          <span class="skip-value">${skipSec}</span>
         </button>
       </div>
     `;
@@ -1513,7 +1568,87 @@ export class AbstpPlayerCard extends LitElement {
     `;
   }
 
+  private renderTabsBar(
+    filteredInProgress: InProgressItem[],
+    filteredBooks: MediaItem[],
+    filteredPodcasts: MediaItem[],
+    lang: string,
+  ): TemplateResult {
+    const showInProgress: boolean = this.inProgress.length > 0 || this.activeTab === 'in_progress';
+    return html`
+      <div class="tabs-bar">
+        <div class="tabs-group">
+          ${
+            showInProgress
+              ? html`
+                <button
+                  class="tab-btn ${this.activeTab === 'in_progress' ? 'active' : ''}"
+                  @click=${(): void => this.handleTabInProgress()}
+                >
+                  ${localize('card.continue_listening', lang)} (${filteredInProgress.length})
+                </button>
+              `
+              : html``
+          }
+          ${
+            !this.config?.hide_books
+              ? html`
+                <button
+                  class="tab-btn ${this.activeTab === 'books' ? 'active' : ''}"
+                  @click=${(): void => this.handleTabBooks()}
+                >
+                  ${localize('card.books', lang)} (${filteredBooks.length})
+                </button>
+              `
+              : html``
+          }
+          ${
+            !this.config?.hide_podcasts
+              ? html`
+                <button
+                  class="tab-btn ${this.activeTab === 'podcasts' ? 'active' : ''}"
+                  @click=${(): void => this.handleTabPodcasts()}
+                >
+                  ${localize('card.podcasts', lang)} (${filteredPodcasts.length})
+                </button>
+              `
+              : html``
+          }
+        </div>
+
+        <button
+          class="ctrl-btn ctrl-btn-refresh icon-btn"
+          @click=${(): void => {
+            void this.fetchLibrary();
+          }}
+          title="${localize('card.refresh', lang)}"
+        >
+          <span class="${this.isRefreshing ? 'icon-spin' : ''}">${waitIcon}</span>
+        </button>
+      </div>
+    `;
+  }
+
+  private renderLibraryContent(
+    filteredInProgress: InProgressItem[],
+    filteredBooks: MediaItem[],
+    filteredPodcasts: MediaItem[],
+    lang: string,
+  ): TemplateResult {
+    if (this.isRefreshing && !this.selectedPodcastId) {
+      return html`<div class="empty-state">${localize('card.loading', lang)}</div>`;
+    }
+    if (this.activeTab === 'in_progress') {
+      return this.renderInProgressGrid(filteredInProgress, lang);
+    }
+    if (this.activeTab === 'books') {
+      return this.renderBooksGrid(filteredBooks, lang);
+    }
+    return this.renderPodcastsView(filteredPodcasts, lang);
+  }
+
   private renderLibrarySection(
+    filteredInProgress: InProgressItem[],
     filteredBooks: MediaItem[],
     filteredPodcasts: MediaItem[],
     lang: string,
@@ -1530,52 +1665,76 @@ export class AbstpPlayerCard extends LitElement {
           />
         </div>
 
-        <div class="tabs-bar">
-          <div class="tabs-group">
-            ${
-              !this.config?.hide_books
-                ? html`
-                  <button
-                    class="tab-btn ${this.activeTab === 'books' ? 'active' : ''}"
-                    @click=${(): void => this.handleTabBooks()}
-                  >
-                    ${localize('card.books', lang)} (${filteredBooks.length})
-                  </button>
-                `
-                : html``
-            }
-            ${
-              !this.config?.hide_podcasts
-                ? html`
-                  <button
-                    class="tab-btn ${this.activeTab === 'podcasts' ? 'active' : ''}"
-                    @click=${(): void => this.handleTabPodcasts()}
-                  >
-                    ${localize('card.podcasts', lang)} (${filteredPodcasts.length})
-                  </button>
-                `
-                : html``
-            }
-          </div>
+        ${this.renderTabsBar(filteredInProgress, filteredBooks, filteredPodcasts, lang)}
+        ${this.renderLibraryContent(filteredInProgress, filteredBooks, filteredPodcasts, lang)}
+      </div>
+    `;
+  }
 
-          <button
-            class="ctrl-btn ctrl-btn-refresh icon-btn"
-            @click=${(): void => {
-              void this.fetchLibrary();
+  private isItemActive(item: InProgressItem): boolean {
+    if (!this.currentItem) {
+      return false;
+    }
+    if ('episode_id' in this.currentItem && this.currentItem.episode_id) {
+      return this.currentItem.id === item.id && this.currentItem.episode_id === item.episode_id;
+    }
+    return this.currentItem.id === item.id;
+  }
+
+  private renderInProgressCard(item: InProgressItem): TemplateResult {
+    const progressPercent: number =
+      item.duration > 0 ? Math.min(100, (item.current_time / item.duration) * 100) : 0;
+    const isActive: boolean = this.isItemActive(item);
+    const isPodcastEp: boolean = item.media_type === 'podcast' && Boolean(item.episode_title);
+    const titleText: string = isPodcastEp ? (item.episode_title ?? item.title) : item.title;
+    const subtitleText: string = isPodcastEp ? item.title : item.author;
+
+    return html`
+      <div
+        class="media-card ${isActive ? 'active' : ''}"
+        @click=${(): void => {
+          void this.handleSelectItem(item);
+        }}
+      >
+        <div class="card-cover">
+          <div class="placeholder">${item.media_type === 'podcast' ? '🎙️' : '📖'}</div>
+          <img
+            src="/api/abstp_controller/cover/${item.id}"
+            alt="${item.title}"
+            loading="lazy"
+            @error=${(e: Event): void => {
+              (e.target as HTMLElement).style.display = 'none';
             }}
-            title="${localize('card.refresh', lang)}"
-          >
-            <span class="${this.isRefreshing ? 'icon-spin' : ''}">${waitIcon}</span>
-          </button>
+          />
+          ${
+            progressPercent > 0
+              ? html`
+                <div class="progress-bar-bg">
+                  <div
+                    class="progress-bar-fill"
+                    style="width: ${progressPercent}%"
+                  ></div>
+                </div>
+              `
+              : html``
+          }
         </div>
+        <div class="card-info">
+          <div class="card-title" title="${titleText}">${titleText}</div>
+          <div class="card-author" title="${subtitleText}">${subtitleText}</div>
+        </div>
+      </div>
+    `;
+  }
 
-        ${
-          this.isRefreshing && !this.selectedPodcastId
-            ? html`<div class="empty-state">${localize('card.loading', lang)}</div>`
-            : this.activeTab === 'books'
-              ? this.renderBooksGrid(filteredBooks, lang)
-              : this.renderPodcastsView(filteredPodcasts, lang)
-        }
+  private renderInProgressGrid(items: InProgressItem[], lang: string): TemplateResult {
+    if (items.length === 0) {
+      return html`<div class="empty-state">${localize('card.no_items', lang)}</div>`;
+    }
+
+    return html`
+      <div class="library-grid">
+        ${items.map((item: InProgressItem): TemplateResult => this.renderInProgressCard(item))}
       </div>
     `;
   }
@@ -1609,21 +1768,84 @@ export class AbstpPlayerCard extends LitElement {
                   }}
                 />
                 ${
-                  progressPercent > 0
+                  book.is_finished
                     ? html`
                       <div class="progress-bar-bg">
-                        <div
-                          class="progress-bar-fill"
-                          style="width: ${progressPercent}%"
-                        ></div>
+                        <div class="progress-bar-fill finished"></div>
                       </div>
                     `
-                    : html``
+                    : progressPercent > 0
+                      ? html`
+                        <div class="progress-bar-bg">
+                          <div
+                            class="progress-bar-fill"
+                            style="width: ${progressPercent}%"
+                          ></div>
+                        </div>
+                      `
+                      : html``
                 }
               </div>
               <div class="card-info">
                 <div class="card-title" title="${book.title}">${book.title}</div>
                 <div class="card-author" title="${book.author}">${book.author}</div>
+              </div>
+            </div>
+          `;
+        })}
+      </div>
+    `;
+  }
+
+  private renderPodcastEpisodesGrid(episodesList: PodcastEpisode[]): TemplateResult {
+    const podcastId: string = this.selectedPodcastId ?? '';
+    return html`
+      <div class="library-grid">
+        ${episodesList.map((ep: PodcastEpisode): TemplateResult => {
+          const isActive: boolean = this.currentItem?.id === ep.id;
+          const progressPercent: number =
+            ep.duration > 0 ? Math.min(100, ((ep.progress || 0) / ep.duration) * 100) : 0;
+          return html`
+            <div
+              class="media-card ${isActive ? 'active' : ''}"
+              @click=${(): void => {
+                void this.handleSelectItem(ep);
+              }}
+            >
+              <div class="card-cover">
+                <div class="placeholder">🎙️</div>
+                <img
+                  src="/api/abstp_controller/cover/${podcastId}"
+                  alt="${ep.title}"
+                  loading="lazy"
+                  @error=${(e: Event): void => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+                ${
+                  ep.is_finished
+                    ? html`
+                      <div class="progress-bar-bg">
+                        <div class="progress-bar-fill finished"></div>
+                      </div>
+                    `
+                    : progressPercent > 0
+                      ? html`
+                        <div class="progress-bar-bg">
+                          <div
+                            class="progress-bar-fill"
+                            style="width: ${progressPercent}%"
+                          ></div>
+                        </div>
+                      `
+                      : html``
+                }
+              </div>
+              <div class="card-info">
+                <div class="card-title" title="${ep.title}">${ep.title}</div>
+                <div class="card-author">
+                  ⏱ ${AbstpPlayerCard.formatTime(ep.duration)}
+                </div>
               </div>
             </div>
           `;
@@ -1657,29 +1879,7 @@ export class AbstpPlayerCard extends LitElement {
             ? html`<div class="empty-state">${localize('card.loading', lang)}</div>`
             : episodesList.length === 0
               ? html`<div class="empty-state">${localize('card.no_items', lang)}</div>`
-              : html`
-                <div class="episodes-list">
-                  ${episodesList.map((ep: PodcastEpisode): TemplateResult => {
-                    const isActive: boolean = this.currentItem?.id === ep.id;
-                    return html`
-                      <div
-                        class="episode-item ${isActive ? 'active' : ''}"
-                        @click=${(): void => {
-                          void this.handleSelectItem(ep);
-                        }}
-                      >
-                        <div class="episode-info">
-                          <div class="card-title">${ep.title}</div>
-                          <div class="card-author">
-                            ⏱ ${AbstpPlayerCard.formatTime(ep.duration)}
-                          </div>
-                        </div>
-                        <button class="ctrl-btn icon-btn">${playIcon}</button>
-                      </div>
-                    `;
-                  })}
-                </div>
-              `
+              : this.renderPodcastEpisodesGrid(episodesList)
         }
       `;
     }

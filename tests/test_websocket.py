@@ -40,6 +40,7 @@ async def test_websocket_handlers_registration(hass: HomeAssistant) -> None:
             )
         ],
         podcasts=[],
+        in_progress=[],
     )
     tracker = SessionTracker(hass, client)
 

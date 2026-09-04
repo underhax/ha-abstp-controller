@@ -3,6 +3,7 @@ export const uk = {
   'card.books': 'Аудіокниги',
   'card.browser': 'Веб-браузер',
   'card.buffering': 'Запуск стріму...',
+  'card.continue_listening': 'В процесі',
   'card.decrease_speed': 'Зменшити швидкість',
   'card.description': 'Картка плеєра Audiobookshelf з контролем швидкості',
   'card.episodes': 'Епізоди',

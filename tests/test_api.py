@@ -109,6 +109,7 @@ async def test_get_books_success(mock_session: MagicMock) -> None:
                 "coverUrl": "/api/proxy/covers/book_1",
                 "duration": 36000.0,
                 "progress": 1200.0,
+                "isFinished": True,
             }
         ]
     )
@@ -121,6 +122,7 @@ async def test_get_books_success(mock_session: MagicMock) -> None:
     assert books[0].title == "Dune"
     assert books[0].author == "Frank Herbert"
     assert books[0].media_type == "book"
+    assert books[0].is_finished is True
 
 
 async def test_get_podcasts_success(mock_session: MagicMock) -> None:
@@ -165,6 +167,7 @@ async def test_get_podcast_episodes_success(mock_session: MagicMock) -> None:
                 "publishedAt": "2026-01-01",
                 "duration": 1800.0,
                 "progress": 300.0,
+                "isFinished": True,
             }
         ]
     )
@@ -175,6 +178,7 @@ async def test_get_podcast_episodes_success(mock_session: MagicMock) -> None:
     assert len(episodes) == 1
     assert episodes[0].id == "ep_1"
     assert episodes[0].title == "Episode 1"
+    assert episodes[0].is_finished is True
 
 
 async def test_start_session_success(mock_session: MagicMock) -> None:
@@ -229,3 +233,78 @@ async def test_api_client_error_handling(mock_session: MagicMock) -> None:
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     with pytest.raises(AbstpApiError):
         _ = await client.async_get_books()
+
+
+async def test_get_in_progress_success(mock_session: MagicMock) -> None:
+    """Test fetching in-progress media items successfully."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(
+        return_value=[
+            {
+                "id": "item_1",
+                "title": "Book 1",
+                "author": "Author 1",
+                "mediaType": "book",
+                "coverUrl": "/cover1.jpg",
+                "duration": 1000.0,
+                "progress": 250.0,
+                "currentTime": 250.0,
+                "narrator": "Narrator 1",
+            },
+            {
+                "id": "podcast_1",
+                "title": "Podcast 1",
+                "author": "Author 2",
+                "mediaType": "podcast",
+                "coverUrl": "",
+                "duration": 2000.0,
+                "progress": 500.0,
+                "currentTime": 500.0,
+                "episodeId": "ep_1",
+                "episodeTitle": "Ep 1",
+            },
+            {
+                "id": "",
+                "title": "Invalid Item Without ID",
+            },
+        ]
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    items = await client.async_get_in_progress()
+    assert len(items) == 2
+    assert items[0].id == "item_1"
+    assert items[0].media_type == "book"
+    assert items[0].current_time == 250.0
+    assert items[0].narrator == "Narrator 1"
+    assert items[1].id == "podcast_1"
+    assert items[1].episode_id == "ep_1"
+    assert items[1].episode_title == "Ep 1"
+
+
+async def test_get_in_progress_empty_and_invalid(mock_session: MagicMock) -> None:
+    """Test get_in_progress with empty or non-list response structures."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value={"error": "not a list"})
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    items = await client.async_get_in_progress()
+    assert items == []
+
+
+async def test_get_in_progress_unauthorized(mock_session: MagicMock) -> None:
+    """Test get_in_progress raising AbstpAuthError on 401 status."""
+    mock_response = MagicMock()
+    mock_response.status = 401
+    mock_response.raise_for_status = MagicMock()
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpAuthError):
+        _ = await client.async_get_in_progress()

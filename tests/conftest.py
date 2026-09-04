@@ -3,6 +3,7 @@
 import pytest
 
 from custom_components.abstp_controller.api import (
+    InProgressItem,
     MediaItem,
     PlaySession,
     PodcastEpisode,
@@ -96,3 +97,33 @@ def mock_play_session() -> PlaySession:
         current_time=1200.0,
         duration=36000.0,
     )
+
+
+@pytest.fixture
+def mock_in_progress() -> list[InProgressItem]:
+    """Return a fixture of mock in-progress items."""
+    return [
+        InProgressItem(
+            id="book_1",
+            title="Dune",
+            author="Frank Herbert",
+            media_type="book",
+            current_time=1200.0,
+            duration=36000.0,
+            progress=1200.0,
+            cover_url="/api/proxy/covers/book_1",
+            narrator="Narrator Example",
+        ),
+        InProgressItem(
+            id="podcast_1",
+            title="Science Weekly",
+            author="Science Group",
+            media_type="podcast",
+            current_time=300.0,
+            duration=1800.0,
+            progress=300.0,
+            cover_url="/api/proxy/covers/podcast_1",
+            episode_id="ep_1",
+            episode_title="Episode 1: Mars Exploration",
+        ),
+    ]

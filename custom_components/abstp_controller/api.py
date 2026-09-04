@@ -34,6 +34,7 @@ class MediaItem:
     cover_url: str | None = None
     duration: float = 0.0
     progress: float = 0.0
+    is_finished: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,24 @@ class PodcastEpisode:
     published_at: str | None = None
     duration: float = 0.0
     progress: float = 0.0
+    is_finished: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class InProgressItem:
+    """Representation of an in-progress audiobook or podcast episode."""
+
+    id: str
+    title: str
+    author: str
+    media_type: str
+    current_time: float
+    duration: float
+    progress: float
+    cover_url: str | None = None
+    narrator: str | None = None
+    episode_id: str | None = None
+    episode_title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +175,7 @@ class AbstpApiClient:
                         cover_url=cover,
                         duration=float(str(item.get("duration", 0.0))),
                         progress=float(str(item.get("progress", 0.0))),
+                        is_finished=bool(item.get("isFinished", False)),
                     )
                 )
         return books
@@ -184,9 +204,53 @@ class AbstpApiClient:
                         cover_url=cover,
                         duration=float(str(item.get("duration", 0.0))),
                         progress=float(str(item.get("progress", 0.0))),
+                        is_finished=bool(item.get("isFinished", False)),
                     )
                 )
         return podcasts
+
+    async def async_get_in_progress(self) -> list[InProgressItem]:
+        """Fetch all in-progress media items with current playback offsets."""
+        data = await self._request("GET", "/api/proxy/in-progress")
+        if not isinstance(data, list):
+            return []
+
+        items: list[InProgressItem] = []
+        raw_list = cast("list[object]", data)
+        for raw_item in raw_list:
+            if isinstance(raw_item, dict):
+                item = cast("dict[str, object]", raw_item)
+                item_id = str(item.get("id", ""))
+                if not item_id:
+                    continue
+                cover = str(item.get("coverUrl", "")) if item.get("coverUrl") else None
+                narrator = (
+                    str(item.get("narrator", "")) if item.get("narrator") else None
+                )
+                ep_id = (
+                    str(item.get("episodeId", "")) if item.get("episodeId") else None
+                )
+                ep_title = (
+                    str(item.get("episodeTitle", ""))
+                    if item.get("episodeTitle")
+                    else None
+                )
+                items.append(
+                    InProgressItem(
+                        id=item_id,
+                        title=str(item.get("title", "")),
+                        author=str(item.get("author", "")),
+                        media_type=str(item.get("mediaType", "book")),
+                        cover_url=cover,
+                        narrator=narrator,
+                        episode_id=ep_id,
+                        episode_title=ep_title,
+                        duration=float(str(item.get("duration", 0.0))),
+                        progress=float(str(item.get("progress", 0.0))),
+                        current_time=float(str(item.get("currentTime", 0.0))),
+                    )
+                )
+        return items
 
     async def async_get_podcast_episodes(self, podcast_id: str) -> list[PodcastEpisode]:
         """Fetch individual episodes for a specified podcast collection."""
@@ -220,6 +284,7 @@ class AbstpApiClient:
                         published_at=str(pub_at) if pub_at else None,
                         duration=float(str(ep.get("duration", 0.0))),
                         progress=float(str(ep.get("progress", 0.0))),
+                        is_finished=bool(ep.get("isFinished", False)),
                     )
                 )
         return episodes

@@ -1,4 +1,12 @@
 {
+  "media_source": {
+    "name": "Audiobookshelf",
+    "continue_listening": "Continuar escuchando",
+    "audiobooks": "Audiolibros",
+    "podcasts": "Podcasts",
+    "episodes": "Episodios",
+    "episode": "Episodio {number}"
+  },
   "config": {
     "step": {
       "user": {

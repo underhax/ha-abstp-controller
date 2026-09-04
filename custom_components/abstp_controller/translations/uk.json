@@ -1,4 +1,12 @@
 {
+  "media_source": {
+    "name": "Audiobookshelf",
+    "continue_listening": "В процесі",
+    "audiobooks": "Аудіокниги",
+    "podcasts": "Подкасти",
+    "episodes": "Епізоди",
+    "episode": "Епізод {number}"
+  },
   "config": {
     "step": {
       "user": {

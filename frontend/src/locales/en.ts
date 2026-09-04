@@ -3,6 +3,7 @@ export const en = {
   'card.books': 'Audiobooks',
   'card.browser': 'Web browser',
   'card.buffering': 'Starting stream...',
+  'card.continue_listening': 'Continue Listening',
   'card.decrease_speed': 'Decrease speed',
   'card.description': 'Transcoded Audiobookshelf player card with speed control',
   'card.episodes': 'Episodes',

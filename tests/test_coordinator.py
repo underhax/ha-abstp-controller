@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from custom_components.abstp_controller.api import MediaItem
+    from custom_components.abstp_controller.api import InProgressItem, MediaItem
 
 from custom_components.abstp_controller.api import (
     AbstpApiClient,
@@ -23,6 +23,7 @@ async def test_coordinator_successful_update(
     hass: HomeAssistant,
     mock_books: list[MediaItem],
     mock_podcasts: list[MediaItem],
+    mock_in_progress: list[InProgressItem],
 ) -> None:
     """Test coordinator data fetch under normal healthy conditions."""
     client = AsyncMock(spec=AbstpApiClient)
@@ -30,6 +31,7 @@ async def test_coordinator_successful_update(
     client.async_get_health = AsyncMock(return_value=True)
     client.async_get_books = AsyncMock(return_value=mock_books)
     client.async_get_podcasts = AsyncMock(return_value=mock_podcasts)
+    client.async_get_in_progress = AsyncMock(return_value=mock_in_progress)
 
     coordinator = AbstpDataUpdateCoordinator(
         hass=hass,
@@ -44,6 +46,8 @@ async def test_coordinator_successful_update(
     assert coordinator.data.healthy is True
     assert coordinator.data.books_count == 2
     assert coordinator.data.podcasts_count == 1
+    assert coordinator.data.in_progress_count == 2
+    assert coordinator.data.in_progress == mock_in_progress
 
 
 async def test_coordinator_update_failure(

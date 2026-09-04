@@ -3,6 +3,7 @@ export const de = {
   'card.books': 'Hörbücher',
   'card.browser': 'Webbrowser',
   'card.buffering': 'Stream wird gestartet...',
+  'card.continue_listening': 'Weiterhören',
   'card.decrease_speed': 'Geschwindigkeit verringern',
   'card.description': 'Transkodierte Audiobookshelf-Player-Karte mit Geschwindigkeitskontrolle',
   'card.episodes': 'Episoden',
