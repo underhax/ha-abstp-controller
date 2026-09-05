@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AbstpPlayerCard } from '../src/abstp-player-card.ts';
 import { AbstpPlayerCardEditor } from '../src/abstp-player-card-editor.ts';
-import type { InProgressItem } from '../src/types.ts';
+import type { AbstpCardConfig, ChapterItem, InProgressItem } from '../src/types.ts';
 
 describe('AbstpPlayerCard', (): void => {
   it('creates stub configuration with default values', (): void => {
-    const stub = AbstpPlayerCard.getStubConfig();
+    const stub = AbstpPlayerCard.getStubConfig() as unknown as AbstpCardConfig;
     expect(stub.type).toBe('custom:abstp-player-card');
     expect(stub.default_speed).toBe(1.0);
     expect(stub.skip_seconds).toBe(10);
@@ -311,6 +311,456 @@ describe('AbstpPlayerCard', (): void => {
     filtered = (card as unknown as { getFilteredBooks: () => unknown[] }).getFilteredBooks();
     expect(filtered).toHaveLength(1);
     expect((filtered[0] as { id: string }).id).toBe('b1');
+  });
+
+  it('toggles chapters panel and closes library panel mutually', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { currentItem: { id: string } }).currentItem = { id: 'multi_chapter_book' };
+    (card as unknown as { chapters: unknown[] }).chapters = [
+      { duration: 100, end: 100, id: 0, start: 0, title: 'Chapter 1' },
+      { duration: 100, end: 200, id: 1, start: 100, title: 'Chapter 2' },
+    ];
+    (card as unknown as { showLibrary: boolean }).showLibrary = true;
+    (card as unknown as { toggleChapters: () => void }).toggleChapters();
+
+    expect((card as unknown as { showChapters: boolean }).showChapters).toBe(true);
+    expect((card as unknown as { showLibrary: boolean }).showLibrary).toBe(false);
+
+    (card as unknown as { toggleLibrary: () => void }).toggleLibrary();
+    expect((card as unknown as { showChapters: boolean }).showChapters).toBe(false);
+    expect((card as unknown as { showLibrary: boolean }).showLibrary).toBe(true);
+  });
+
+  it('determines current chapter based on playback position', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { currentItem: { id: string } }).currentItem = { id: 'test_book' };
+    (card as unknown as { chapters: unknown[] }).chapters = [
+      { duration: 100, end: 100, id: 0, start: 0, title: 'Chapter 1' },
+      { duration: 200, end: 300, id: 1, start: 100, title: 'Chapter 2' },
+      { duration: 150, end: 450, id: 2, start: 300, title: 'Chapter 3' },
+    ];
+
+    (card as unknown as { playbackPosition: number }).playbackPosition = 50;
+    let ch = (
+      card as unknown as {
+        getCurrentChapter: () => { id: number; title: string } | null;
+      }
+    ).getCurrentChapter();
+    expect(ch?.id).toBe(0);
+    expect(ch?.title).toBe('Chapter 1');
+
+    (card as unknown as { playbackPosition: number }).playbackPosition = 250;
+    ch = (
+      card as unknown as {
+        getCurrentChapter: () => { id: number; title: string } | null;
+      }
+    ).getCurrentChapter();
+    expect(ch?.id).toBe(1);
+    expect(ch?.title).toBe('Chapter 2');
+
+    (card as unknown as { playbackPosition: number }).playbackPosition = 500;
+    ch = (
+      card as unknown as {
+        getCurrentChapter: () => { id: number; title: string } | null;
+      }
+    ).getCurrentChapter();
+    expect(ch?.id).toBe(2);
+    expect(ch?.title).toBe('Chapter 3');
+  });
+
+  it('resolves narrator along with author and coverId in resolveHeroCoverAndAuthor', (): void => {
+    const resolve = (
+      AbstpPlayerCard as unknown as {
+        resolveHeroCoverAndAuthor: (item: unknown) => {
+          author: string;
+          coverId: string;
+          narrator: string;
+        };
+      }
+    ).resolveHeroCoverAndAuthor;
+
+    const book = {
+      author: 'Frank Herbert',
+      id: 'book_1',
+      narrator: 'George Guidall',
+      title: 'Dune',
+    };
+    const meta = resolve(book);
+    expect(meta.author).toBe('Frank Herbert');
+    expect(meta.coverId).toBe('book_1');
+    expect(meta.narrator).toBe('George Guidall');
+  });
+
+  it('scrolls chapters list to previous chapter before active chapter', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const mockList = document.createElement('div');
+    mockList.className = 'chapters-list';
+    mockList.scrollTop = 0;
+
+    const mockFirst = document.createElement('div');
+    mockFirst.className = 'chapter-item';
+    Object.defineProperty(mockFirst, 'offsetTop', { value: 0 });
+    Object.defineProperty(mockFirst, 'offsetParent', { value: mockList });
+
+    const mockPrev = document.createElement('div');
+    mockPrev.className = 'chapter-item';
+    Object.defineProperty(mockPrev, 'offsetTop', { value: 150 });
+    Object.defineProperty(mockPrev, 'offsetParent', { value: mockList });
+
+    const mockItem = document.createElement('div');
+    mockItem.className = 'chapter-item active';
+    Object.defineProperty(mockItem, 'offsetTop', { value: 200 });
+    Object.defineProperty(mockItem, 'offsetParent', { value: mockList });
+
+    mockList.appendChild(mockFirst);
+    mockList.appendChild(mockPrev);
+    mockList.appendChild(mockItem);
+    document.body.appendChild(mockList);
+
+    Object.defineProperty(card, 'renderRoot', {
+      value: {
+        querySelector: (sel: string): HTMLElement | null => {
+          if (sel === '.chapters-list') {
+            return mockList;
+          }
+          if (sel === '.chapter-item.active') {
+            return mockItem;
+          }
+          return null;
+        },
+      },
+    });
+
+    (card as unknown as { scrollToActiveChapter: () => void }).scrollToActiveChapter();
+    expect(mockList.scrollTop).toBe(150);
+
+    document.body.removeChild(mockList);
+  });
+
+  it('scrolls chapters list to top when active chapter is first', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const mockList = document.createElement('div');
+    mockList.className = 'chapters-list';
+    mockList.scrollTop = 100;
+
+    const mockItem = document.createElement('div');
+    mockItem.className = 'chapter-item active';
+    Object.defineProperty(mockItem, 'offsetTop', { value: 0 });
+    Object.defineProperty(mockItem, 'offsetParent', { value: mockList });
+
+    mockList.appendChild(mockItem);
+    document.body.appendChild(mockList);
+
+    Object.defineProperty(card, 'renderRoot', {
+      value: {
+        querySelector: (sel: string): HTMLElement | null => {
+          if (sel === '.chapters-list') {
+            return mockList;
+          }
+          if (sel === '.chapter-item.active') {
+            return mockItem;
+          }
+          return null;
+        },
+      },
+    });
+
+    (card as unknown as { scrollToActiveChapter: () => void }).scrollToActiveChapter();
+    expect(mockList.scrollTop).toBe(0);
+
+    document.body.removeChild(mockList);
+  });
+
+  it('triggers buffering animation when changing chapter during playback', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { isPlaying: boolean }).isPlaying = true;
+    (card as unknown as { isBuffering: boolean }).isBuffering = false;
+    (card as unknown as { currentItem: { id: string; duration: number } }).currentItem = {
+      duration: 3600,
+      id: 'book_1',
+    };
+    (card as unknown as { selectedPlayer: string }).selectedPlayer = 'media_player.test_speaker';
+
+    const mockHass = {
+      callService: vi.fn().mockResolvedValue(undefined),
+      states: {
+        'media_player.test_speaker': {
+          attributes: {},
+          state: 'playing',
+        },
+      },
+    };
+    (card as unknown as { hass: typeof mockHass }).hass = mockHass;
+
+    const chapter: ChapterItem = {
+      duration: 300,
+      end: 600,
+      id: 2,
+      start: 300,
+      title: 'Chapter 2',
+    };
+
+    const promise: Promise<void> = (
+      card as unknown as { handleChapterClick: (ch: ChapterItem) => Promise<void> }
+    ).handleChapterClick(chapter);
+
+    expect((card as unknown as { isBuffering: boolean }).isBuffering).toBe(true);
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+
+    await promise;
+
+    expect(mockHass.callService).toHaveBeenCalledWith('abstp_controller', 'play', {
+      current_time: 300,
+      entity_id: 'media_player.test_speaker',
+      episode_id: undefined,
+      item_id: 'book_1',
+      speed: 1.0,
+    });
+    expect((card as unknown as { playbackPosition: number }).playbackPosition).toBe(300);
+  });
+
+  it('switches chapter and starts streaming from chapter start time in browser mode', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { isPlaying: boolean }).isPlaying = true;
+    (card as unknown as { isBuffering: boolean }).isBuffering = false;
+    (card as unknown as { currentItem: { id: string; duration: number } }).currentItem = {
+      duration: 3600,
+      id: 'book_browser',
+    };
+    (card as unknown as { selectedPlayer: string }).selectedPlayer = '';
+    (card as unknown as { browserStreamStartPos: number }).browserStreamStartPos = 0;
+    (card as unknown as { playbackPosition: number }).playbackPosition = 120;
+
+    const mockHass = {
+      callWS: vi.fn().mockResolvedValue({
+        current_time: 450,
+        duration: 3600,
+        session_id: 'new_session_123',
+        stream_url: 'http://example.com/stream.mp3',
+      }),
+    };
+    (card as unknown as { hass: typeof mockHass }).hass = mockHass;
+
+    const chapter: ChapterItem = {
+      duration: 300,
+      end: 750,
+      id: 2,
+      start: 450,
+      title: 'Chapter 2',
+    };
+
+    await (
+      card as unknown as { handleChapterClick: (ch: ChapterItem) => Promise<void> }
+    ).handleChapterClick(chapter);
+
+    expect(mockHass.callWS).toHaveBeenCalledWith(
+      expect.objectContaining({
+        current_time: 450,
+        item_id: 'book_browser',
+        type: 'abstp_controller/start_session',
+      }),
+    );
+    expect((card as unknown as { playbackPosition: number }).playbackPosition).toBe(450);
+    expect((card as unknown as { browserStreamStartPos: number }).browserStreamStartPos).toBe(450);
+
+    (
+      card as unknown as { handleBrowserTimeUpdate: (pos: number, dur: number) => void }
+    ).handleBrowserTimeUpdate(0, 3600);
+    expect((card as unknown as { playbackPosition: number }).playbackPosition).toBe(450);
+
+    (
+      card as unknown as { handleBrowserTimeUpdate: (pos: number, dur: number) => void }
+    ).handleBrowserTimeUpdate(5, 3600);
+    expect((card as unknown as { playbackPosition: number }).playbackPosition).toBe(455);
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(true);
+  });
+
+  it('identifies podcast items versus book items accurately', (): void => {
+    expect(AbstpPlayerCard.isPodcastItem(null)).toBe(false);
+    expect(
+      AbstpPlayerCard.isPodcastItem({
+        author: 'Author',
+        cover_url: '',
+        duration: 100,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 0,
+        title: 'Book',
+      }),
+    ).toBe(false);
+    expect(
+      AbstpPlayerCard.isPodcastItem({
+        duration: 200,
+        id: 'ep_1',
+        podcast_id: 'pod_1',
+        progress: 0,
+        title: 'Episode',
+      }),
+    ).toBe(true);
+    expect(
+      AbstpPlayerCard.isPodcastItem({
+        author: 'Host',
+        cover_url: '',
+        duration: 300,
+        id: 'pod_1',
+        media_type: 'podcast',
+        progress: 0,
+        title: 'Podcast',
+      }),
+    ).toBe(true);
+  });
+
+  it('clears chapters and disables chapters button when podcast episode is selected', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { chapters: unknown[] }).chapters = [
+      { duration: 100, end: 100, id: 1, start: 0, title: 'Chapter 1' },
+    ];
+    (card as unknown as { chaptersBookId: string }).chaptersBookId = 'prev_book';
+    (card as unknown as { showChapters: boolean }).showChapters = true;
+
+    const podcastEpisode = {
+      duration: 300,
+      id: 'ep_10',
+      podcast_id: 'pod_1',
+      progress: 0,
+      title: 'Episode 10',
+    };
+
+    await (
+      card as unknown as {
+        handleSelectItem: (item: typeof podcastEpisode) => Promise<void>;
+      }
+    ).handleSelectItem(podcastEpisode);
+
+    expect((card as unknown as { chapters: ChapterItem[] }).chapters.length).toBe(0);
+    expect((card as unknown as { chaptersBookId: string }).chaptersBookId).toBe('');
+    expect((card as unknown as { showChapters: boolean }).showChapters).toBe(false);
+
+    const getChapter = (
+      card as unknown as { getCurrentChapter: () => ChapterItem | null }
+    ).getCurrentChapter.bind(card);
+    expect(getChapter()).toBeNull();
+
+    (card as unknown as { toggleChapters: () => void }).toggleChapters();
+    expect((card as unknown as { showChapters: boolean }).showChapters).toBe(false);
+  });
+
+  it('disables chapters navigation and hides chapter label when book has at most one chapter', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { currentItem: { id: string } }).currentItem = {
+      id: 'single_chapter_book',
+    };
+    (card as unknown as { chapters: unknown[] }).chapters = [
+      { duration: 3600, end: 3600, id: 0, start: 0, title: 'Chapter 1' },
+    ];
+
+    expect(
+      (card as unknown as { hasNoNavigableChapters: () => boolean }).hasNoNavigableChapters(),
+    ).toBe(true);
+
+    const getChapter = (
+      card as unknown as { getCurrentChapter: () => ChapterItem | null }
+    ).getCurrentChapter.bind(card);
+    expect(getChapter()).toBeNull();
+
+    (card as unknown as { toggleChapters: () => void }).toggleChapters();
+    expect((card as unknown as { showChapters: boolean }).showChapters).toBe(false);
+  });
+
+  it('immediately switches to stopped state on stop click and ignores stale playing updates', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const mockHass = {
+      callService: vi.fn().mockResolvedValue(undefined),
+      callWS: vi.fn().mockResolvedValue(undefined),
+      states: {
+        'media_player.test_speaker': {
+          attributes: {},
+          entity_id: 'media_player.test_speaker',
+          state: 'playing',
+        },
+      },
+    };
+    (card as unknown as { hass: typeof mockHass }).hass = mockHass;
+    (card as unknown as { currentItem: { id: string } }).currentItem = { id: 'book_1' };
+    (card as unknown as { selectedPlayer: string }).selectedPlayer = 'media_player.test_speaker';
+    (card as unknown as { isPlaying: boolean }).isPlaying = true;
+
+    (card as unknown as { handleTogglePlayPause: () => void }).handleTogglePlayPause();
+
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+    expect((card as unknown as { isBuffering: boolean }).isBuffering).toBe(false);
+
+    (card as unknown as { syncPlaybackState: (state: string) => void }).syncPlaybackState(
+      'playing',
+    );
+
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+
+    (card as unknown as { syncPlaybackState: (state: string) => void }).syncPlaybackState('idle');
+
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+    expect((card as unknown as { awaitingPlaybackStop: boolean }).awaitingPlaybackStop).toBe(false);
+  });
+
+  it('ignores trailing browser time updates after stopping playback', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    (card as unknown as { currentItem: { id: string } }).currentItem = { id: 'book_2' };
+    (card as unknown as { selectedPlayer: string }).selectedPlayer = '';
+    (card as unknown as { isPlaying: boolean }).isPlaying = true;
+
+    (card as unknown as { handleTogglePlayPause: () => void }).handleTogglePlayPause();
+
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+
+    (
+      card as unknown as { handleBrowserTimeUpdate: (pos: number, dur: number) => void }
+    ).handleBrowserTimeUpdate(50, 100);
+
+    expect((card as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
+  });
+
+  it('preserves and restores browser volume when switching between speaker and browser', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const mockHass = {
+      callService: vi.fn().mockResolvedValue(undefined),
+      callWS: vi.fn().mockResolvedValue(undefined),
+      states: {
+        'media_player.station': {
+          attributes: {
+            is_volume_muted: false,
+            volume_level: 0.1,
+          },
+          entity_id: 'media_player.station',
+          state: 'idle',
+        },
+      },
+    };
+    (card as unknown as { hass: typeof mockHass }).hass = mockHass;
+    (card as unknown as { selectedPlayer: string }).selectedPlayer = '';
+
+    await (
+      card as unknown as { handleVolumeChange: (val: number) => Promise<void> }
+    ).handleVolumeChange(0.5);
+
+    expect((card as unknown as { volumeLevel: number }).volumeLevel).toBe(0.5);
+    const getBrowserVolume = (): number =>
+      (card as unknown as { browserPlayer: { getVolume: () => number } }).browserPlayer.getVolume();
+    expect(getBrowserVolume()).toBe(0.5);
+
+    await (card as unknown as { selectPlayer: (id: string) => Promise<void> }).selectPlayer(
+      'media_player.station',
+    );
+
+    expect((card as unknown as { selectedPlayer: string }).selectedPlayer).toBe(
+      'media_player.station',
+    );
+    expect((card as unknown as { volumeLevel: number }).volumeLevel).toBe(0.1);
+
+    await (card as unknown as { selectPlayer: (id: string) => Promise<void> }).selectPlayer('');
+
+    expect((card as unknown as { selectedPlayer: string }).selectedPlayer).toBe('');
+    expect((card as unknown as { volumeLevel: number }).volumeLevel).toBe(0.5);
+    expect(getBrowserVolume()).toBe(0.5);
   });
 });
 

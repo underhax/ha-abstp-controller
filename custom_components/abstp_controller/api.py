@@ -32,9 +32,21 @@ class MediaItem:
     author: str
     media_type: str
     cover_url: str | None = None
+    narrator: str | None = None
     duration: float = 0.0
     progress: float = 0.0
     is_finished: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ChapterItem:
+    """Representation of an audiobook chapter marker."""
+
+    id: int
+    title: str
+    start: float
+    end: float
+    duration: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +178,9 @@ class AbstpApiClient:
                 if not item_id:
                     continue
                 cover = str(item.get("coverUrl", "")) if item.get("coverUrl") else None
+                narrator = (
+                    str(item.get("narrator", "")) if item.get("narrator") else None
+                )
                 books.append(
                     MediaItem(
                         id=item_id,
@@ -173,6 +188,7 @@ class AbstpApiClient:
                         author=str(item.get("author", "")),
                         media_type="book",
                         cover_url=cover,
+                        narrator=narrator,
                         duration=float(str(item.get("duration", 0.0))),
                         progress=float(str(item.get("progress", 0.0))),
                         is_finished=bool(item.get("isFinished", False)),
@@ -328,3 +344,25 @@ class AbstpApiClient:
             resp = cast("dict[str, object]", data)
             return resp.get("status") == "stopped"
         return False
+
+    async def async_get_book_chapters(self, book_id: str) -> list[ChapterItem]:
+        """Fetch chapter markers for a specified audiobook."""
+        data = await self._request("GET", f"/api/proxy/books/{book_id}/chapters")
+        if not isinstance(data, list):
+            return []
+
+        chapters: list[ChapterItem] = []
+        raw_list = cast("list[object]", data)
+        for raw_item in raw_list:
+            if isinstance(raw_item, dict):
+                item = cast("dict[str, object]", raw_item)
+                chapters.append(
+                    ChapterItem(
+                        id=int(str(item.get("id", 0))),
+                        title=str(item.get("title", "")),
+                        start=float(str(item.get("start", 0.0))),
+                        end=float(str(item.get("end", 0.0))),
+                        duration=float(str(item.get("duration", 0.0))),
+                    )
+                )
+        return chapters

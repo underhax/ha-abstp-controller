@@ -1,8 +1,10 @@
 export const es = {
   'card.all': 'Todos',
+  'card.author': 'Autor',
   'card.books': 'Audiolibros',
   'card.browser': 'Navegador web',
   'card.buffering': 'Iniciando transmisión...',
+  'card.chapters': 'Capítulos',
   'card.continue_listening': 'Continuar',
   'card.decrease_speed': 'Disminuir velocidad',
   'card.description':
@@ -16,7 +18,9 @@ export const es = {
   'card.loading': 'Cargando catálogo...',
   'card.mute': 'Silenciar',
   'card.name': 'Reproductor Audiobookshelf',
+  'card.narrator': 'Narrador',
   'card.no_active_track': 'Seleccione un audiolibro o pódcast para reproducir',
+  'card.no_chapters': 'No hay capítulos disponibles',
   'card.no_items': 'No hay elementos disponibles en la biblioteca',
   'card.now_playing': 'Reproduciendo ahora',
   'card.pause': 'Pausa',

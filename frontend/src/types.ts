@@ -1,3 +1,11 @@
+export interface ChapterItem {
+  duration: number;
+  end: number;
+  id: number;
+  start: number;
+  title: string;
+}
+
 export interface MediaItem {
   author: string;
   cover_url: string;
@@ -5,6 +13,7 @@ export interface MediaItem {
   id: string;
   is_finished?: boolean;
   media_type: 'book' | 'podcast';
+  narrator?: string | null;
   progress: number;
   title: string;
 }

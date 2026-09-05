@@ -15,18 +15,24 @@ import {
   SPEED_PRESETS,
 } from './card-constants.ts';
 import {
+  audiobookIcon,
   audiobookshelfIcon,
+  authorIcon,
   browserIcon,
+  chaptersIcon,
   chevronDownIcon,
   libraryIcon,
+  microphoneIcon,
   minusIcon,
   playIcon,
   plusIcon,
+  podcastIcon,
   redoIcon,
   soundMuteIcon,
   soundOnIcon,
   speakerIcon,
   stopIcon,
+  timerIcon,
   undoIcon,
   waitIcon,
 } from './icons.ts';
@@ -35,6 +41,7 @@ import { cardStyles } from './styles.ts';
 import type {
   AbstpCardConfig,
   ActiveSessionInfo,
+  ChapterItem,
   HassEntity,
   HomeAssistant,
   InProgressItem,
@@ -52,6 +59,10 @@ export class AbstpPlayerCard extends LitElement {
   @state() private config?: AbstpCardConfig;
   @state() private activeTab: 'in_progress' | 'books' | 'podcasts' = 'in_progress';
   @state() private showLibrary: boolean = false;
+  @state() private showChapters: boolean = false;
+  @state() private chapters: ChapterItem[] = [];
+  @state() private chaptersBookId: string = '';
+  @state() private isLoadingChapters: boolean = false;
   @state() private showSpeedPopover: boolean = false;
   @state() private showVolumePopover: boolean = false;
   @state() private showDeviceMenu: boolean = false;
@@ -77,12 +88,24 @@ export class AbstpPlayerCard extends LitElement {
   @state() private browserStreamStartPos: number = 0;
 
   private browserPlayer: BrowserAudioPlayer = new BrowserAudioPlayer();
+  private browserVolume: number = DEFAULT_VOLUME_LEVEL;
+  private browserMuted: boolean = false;
   private libraryLoaded: boolean = false;
   private userSelectedTab: boolean = false;
   private speakerTimer: number | null = null;
   private awaitingPlaybackStart: boolean = false;
+  private awaitingPlaybackStop: boolean = false;
+  private playbackStopTimeout: number | null = null;
   private speedHoldTimer: number | null = null;
   private speedHoldInterval: number | null = null;
+
+  private clearPlaybackStopTimeout(): void {
+    if (this.playbackStopTimeout !== null) {
+      window.clearTimeout(this.playbackStopTimeout);
+      this.playbackStopTimeout = null;
+    }
+    this.awaitingPlaybackStop = false;
+  }
 
   private readonly _cardSize: number = 5;
 
@@ -138,6 +161,24 @@ export class AbstpPlayerCard extends LitElement {
     return `abstp_${this.getCardStorageScope()}_${subKey}`;
   }
 
+  private initBrowserVolume(): void {
+    const savedVol: string | null = AbstpPlayerCard.getStorageItem(
+      this.getCardStorageKey('browser_volume'),
+    );
+    if (savedVol !== null) {
+      const parsed: number = Number.parseFloat(savedVol);
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1.0) {
+        this.browserVolume = Math.round(parsed * 10) / 10;
+      }
+    }
+    const savedMuted: string | null = AbstpPlayerCard.getStorageItem(
+      this.getCardStorageKey('browser_muted'),
+    );
+    if (savedMuted !== null) {
+      this.browserMuted = savedMuted === 'true';
+    }
+  }
+
   private initSelectedPlayer(): void {
     const allowed: string[] | undefined = this.config?.player_entities;
     const savedPlayer: string | null = AbstpPlayerCard.getStorageItem(
@@ -149,20 +190,22 @@ export class AbstpPlayerCard extends LitElement {
 
     if (savedPlayer !== null && isValidPlayer(savedPlayer)) {
       this.selectedPlayer = savedPlayer;
-      return;
-    }
-
-    if (this.config?.player_entity !== undefined && isValidPlayer(this.config.player_entity)) {
+    } else if (
+      this.config?.player_entity !== undefined &&
+      isValidPlayer(this.config.player_entity)
+    ) {
       this.selectedPlayer = this.config.player_entity;
-      return;
-    }
-
-    if (allowed && allowed.length > 0) {
+    } else if (allowed && allowed.length > 0) {
       this.selectedPlayer = allowed[0] ?? '';
-      return;
+    } else {
+      this.selectedPlayer = '';
     }
 
-    this.selectedPlayer = '';
+    if (this.selectedPlayer === '') {
+      this.volumeLevel = this.browserVolume;
+      this.isMuted = this.browserMuted;
+      this.browserPlayer.setVolume(this.browserMuted ? 0 : this.browserVolume);
+    }
   }
 
   private initSelectedSpeed(): void {
@@ -187,6 +230,7 @@ export class AbstpPlayerCard extends LitElement {
 
   public setConfig(config: AbstpCardConfig): void {
     this.config = config;
+    this.initBrowserVolume();
     this.initSelectedPlayer();
     this.initSelectedSpeed();
   }
@@ -197,12 +241,14 @@ export class AbstpPlayerCard extends LitElement {
     window.addEventListener('pointerdown', this.handleGlobalPointerDown);
     window.addEventListener('pagehide', this.handlePageHide);
     this.setupAudioListeners();
+    this.initBrowserVolume();
     this.initSelectedPlayer();
     this.initSelectedSpeed();
   }
 
   public override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.clearPlaybackStopTimeout();
     window.removeEventListener('keydown', this.handleGlobalKeydown);
     window.removeEventListener('pointerdown', this.handleGlobalPointerDown);
     window.removeEventListener('pagehide', this.handlePageHide);
@@ -271,15 +317,51 @@ export class AbstpPlayerCard extends LitElement {
 
   protected override updated(changedProps: Map<string | number | symbol, unknown>): void {
     super.updated(changedProps);
+    if (this.showChapters && (changedProps.has('showChapters') || changedProps.has('chapters'))) {
+      void this.updateComplete.then((): void => {
+        requestAnimationFrame((): void => {
+          this.scrollToActiveChapter();
+        });
+      });
+    }
     if (!changedProps.has('hass') || !this.hass) {
       return;
     }
     if (!this.libraryLoaded) {
       this.libraryLoaded = true;
       void this.fetchLibrary();
-    } else {
-      this.syncPlayerState();
     }
+    this.syncPlayerState();
+  }
+
+  private scrollToActiveChapter(): void {
+    const list: HTMLElement | null = this.renderRoot?.querySelector('.chapters-list');
+    const activeItem: HTMLElement | null = this.renderRoot?.querySelector('.chapter-item.active');
+    if (!list || !activeItem) {
+      return;
+    }
+    const targetItem: HTMLElement =
+      (activeItem.previousElementSibling as HTMLElement | null) ?? activeItem;
+
+    if (targetItem === list.firstElementChild) {
+      list.scrollTop = 0;
+      return;
+    }
+
+    let targetOffset: number;
+    if (targetItem.offsetParent === list) {
+      targetOffset = targetItem.offsetTop;
+    } else {
+      const listRect: DOMRect = list.getBoundingClientRect();
+      const targetRect: DOMRect = targetItem.getBoundingClientRect();
+      if (listRect.height > 0 || targetRect.height > 0) {
+        targetOffset = targetRect.top - listRect.top - list.clientTop + list.scrollTop;
+      } else {
+        targetOffset = targetItem.offsetTop - list.offsetTop;
+      }
+    }
+
+    list.scrollTop = Math.max(0, targetOffset);
   }
 
   private startSpeakerTimer(): void {
@@ -318,9 +400,20 @@ export class AbstpPlayerCard extends LitElement {
     }
   }
 
+  private handleSpeakerStopped(isOffOrUnavailable: boolean): void {
+    this.clearPlaybackStopTimeout();
+    if (isOffOrUnavailable) {
+      this.isBuffering = false;
+    }
+    if (this.isPlaying) {
+      this.isPlaying = false;
+      this.stopSpeakerTimer();
+    }
+  }
+
   private syncPlaybackState(state: string): void {
     if (state === 'playing') {
-      if (!this.awaitingPlaybackStart) {
+      if (!this.awaitingPlaybackStop && !this.awaitingPlaybackStart) {
         this.isBuffering = false;
         if (!this.isPlaying) {
           this.isPlaying = true;
@@ -330,26 +423,26 @@ export class AbstpPlayerCard extends LitElement {
       return;
     }
 
+    this.awaitingPlaybackStart = false;
+
     if (state === 'off' || state === 'unavailable') {
-      this.awaitingPlaybackStart = false;
-      this.isBuffering = false;
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.stopSpeakerTimer();
-      }
+      this.handleSpeakerStopped(true);
       return;
     }
 
     if (state === 'idle' || state === 'paused' || state === 'standby' || state === 'buffering') {
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.stopSpeakerTimer();
-      }
+      this.handleSpeakerStopped(false);
     }
   }
 
   private syncPlayerState(): void {
-    if (!this.selectedPlayer || !this.hass) {
+    if (this.selectedPlayer === '') {
+      this.volumeLevel = this.browserVolume;
+      this.isMuted = this.browserMuted;
+      this.browserPlayer.setVolume(this.browserMuted ? 0 : this.browserVolume);
+      return;
+    }
+    if (!this.hass) {
       return;
     }
     const entity: HassEntity | undefined = this.hass.states[this.selectedPlayer];
@@ -362,16 +455,28 @@ export class AbstpPlayerCard extends LitElement {
 
   private setupAudioListeners(): void {
     this.browserPlayer.onState((playing: boolean): void => {
-      this.isPlaying = playing;
       if (playing) {
-        this.isBuffering = false;
-        this.awaitingPlaybackStart = false;
+        if (!this.awaitingPlaybackStop) {
+          this.isPlaying = true;
+          this.isBuffering = false;
+          this.awaitingPlaybackStart = false;
+        }
+      } else {
+        this.isPlaying = false;
+        if (!this.awaitingPlaybackStart) {
+          this.isBuffering = false;
+        }
+        this.clearPlaybackStopTimeout();
       }
     });
 
     this.browserPlayer.onBuffering((buffering: boolean): void => {
-      if (this.selectedPlayer === '') {
+      if (this.selectedPlayer === '' && !this.awaitingPlaybackStop) {
         this.isBuffering = buffering;
+        if (!buffering && this.awaitingPlaybackStart) {
+          this.isPlaying = true;
+          this.awaitingPlaybackStart = false;
+        }
       }
     });
 
@@ -383,6 +488,7 @@ export class AbstpPlayerCard extends LitElement {
       this.isPlaying = false;
       this.isBuffering = false;
       this.awaitingPlaybackStart = false;
+      this.clearPlaybackStopTimeout();
     });
   }
 
@@ -390,11 +496,15 @@ export class AbstpPlayerCard extends LitElement {
     if (this.selectedPlayer !== '') {
       return;
     }
+    if (this.awaitingPlaybackStop) {
+      return;
+    }
+    if (pos <= 0 && (this.awaitingPlaybackStart || this.isBuffering)) {
+      return;
+    }
     if (pos > 0) {
-      if (!this.isPlaying) {
+      if (this.awaitingPlaybackStart || this.isBuffering) {
         this.isPlaying = true;
-      }
-      if (this.isBuffering) {
         this.isBuffering = false;
         this.awaitingPlaybackStart = false;
       }
@@ -484,6 +594,13 @@ export class AbstpPlayerCard extends LitElement {
       `abstp_pos_${matchedItem.id}`,
       String(activeSession.current_time),
     );
+    if (activeSession.episode_id || AbstpPlayerCard.isPodcastItem(matchedItem)) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      this.showChapters = false;
+    } else {
+      void this.fetchChapters(activeSession.item_id);
+    }
     return true;
   }
 
@@ -505,6 +622,13 @@ export class AbstpPlayerCard extends LitElement {
       this.playbackPosition =
         savedPos !== null ? Number.parseFloat(savedPos) : targetItem.progress || 0;
       this.playbackDuration = targetItem.duration || 0;
+    }
+    if (AbstpPlayerCard.isPodcastItem(targetItem)) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      this.showChapters = false;
+    } else {
+      void this.fetchChapters(targetItem.id);
     }
   }
 
@@ -582,6 +706,99 @@ export class AbstpPlayerCard extends LitElement {
     }
   }
 
+  private async fetchChapters(targetBookId?: string): Promise<void> {
+    if (!this.hass) {
+      return;
+    }
+    if (AbstpPlayerCard.isPodcastItem(this.currentItem)) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      this.showChapters = false;
+      return;
+    }
+    const bookId: string =
+      targetBookId ??
+      (this.currentItem ? AbstpPlayerCard.resolveItemIds(this.currentItem).itemId : '');
+    if (!bookId) {
+      return;
+    }
+    if (this.chaptersBookId === bookId && this.chapters.length > 0) {
+      return;
+    }
+    this.isLoadingChapters = true;
+    try {
+      const response = await this.hass.callWS<{
+        chapters: ChapterItem[];
+      }>({
+        book_id: bookId,
+        type: 'abstp_controller/get_chapters',
+      });
+      this.chapters = response.chapters ?? [];
+      this.chaptersBookId = bookId;
+      if (this.chapters.length <= 1) {
+        this.showChapters = false;
+      }
+    } catch {
+      this.chapters = [];
+      this.chaptersBookId = bookId;
+      this.showChapters = false;
+    } finally {
+      this.isLoadingChapters = false;
+    }
+  }
+
+  private hasNoNavigableChapters(): boolean {
+    return (
+      !this.currentItem ||
+      AbstpPlayerCard.isPodcastItem(this.currentItem) ||
+      this.chapters.length <= 1
+    );
+  }
+
+  private getCurrentChapter(): ChapterItem | null {
+    if (this.hasNoNavigableChapters()) {
+      return null;
+    }
+    const pos: number = this.playbackPosition;
+    for (let i = 0; i < this.chapters.length; i++) {
+      const ch: ChapterItem | undefined = this.chapters[i];
+      if (!ch) {
+        continue;
+      }
+      if (pos >= ch.start && pos < ch.end) {
+        return ch;
+      }
+    }
+    const lastChapter: ChapterItem | undefined = this.chapters[this.chapters.length - 1];
+    if (lastChapter && pos >= lastChapter.start) {
+      return lastChapter;
+    }
+    return this.chapters[0] ?? null;
+  }
+
+  private async handleChapterClick(ch: ChapterItem): Promise<void> {
+    if (!this.currentItem) {
+      return;
+    }
+    await this.handleSeek(ch.start);
+  }
+
+  public static isPodcastItem(item: MediaItem | PodcastEpisode | InProgressItem | null): boolean {
+    if (!item) {
+      return false;
+    }
+    if ('podcast_id' in item && item.podcast_id) {
+      return true;
+    }
+    if ('media_type' in item && item.media_type === 'podcast') {
+      return true;
+    }
+    if ('episode_id' in item && item.episode_id) {
+      return true;
+    }
+    return false;
+  }
+
   private static resolveItemIds(item: MediaItem | PodcastEpisode | InProgressItem): {
     episodeId?: string | undefined;
     itemId: string;
@@ -631,7 +848,17 @@ export class AbstpPlayerCard extends LitElement {
     AbstpPlayerCard.setStorageItem(`abstp_pos_${item.id}`, String(initialPosition));
     this.playbackDuration = item.duration;
     const { itemId, episodeId } = AbstpPlayerCard.resolveItemIds(item);
+    if (AbstpPlayerCard.isPodcastItem(item)) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      this.showChapters = false;
+    } else if (itemId !== this.chaptersBookId) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      void this.fetchChapters(itemId);
+    }
 
+    this.clearPlaybackStopTimeout();
     this.isBuffering = true;
     this.isPlaying = false;
     this.awaitingPlaybackStart = true;
@@ -646,6 +873,7 @@ export class AbstpPlayerCard extends LitElement {
           type: 'abstp_controller/start_session',
         });
         this.currentSession = session;
+        this.browserPlayer.setVolume(this.isMuted ? 0 : this.volumeLevel);
         this.browserPlayer.playStream(session.stream_url);
       } catch {
         this.isPlaying = false;
@@ -666,8 +894,6 @@ export class AbstpPlayerCard extends LitElement {
         this.isPlaying = false;
         this.isBuffering = false;
         this.awaitingPlaybackStart = false;
-      } finally {
-        this.awaitingPlaybackStart = false;
       }
     }
   }
@@ -677,6 +903,14 @@ export class AbstpPlayerCard extends LitElement {
     this.isPlaying = false;
     this.isBuffering = false;
     this.awaitingPlaybackStart = false;
+    this.awaitingPlaybackStop = true;
+    if (this.playbackStopTimeout !== null) {
+      window.clearTimeout(this.playbackStopTimeout);
+    }
+    this.playbackStopTimeout = window.setTimeout((): void => {
+      this.awaitingPlaybackStop = false;
+      this.playbackStopTimeout = null;
+    }, 5000);
     const sessionToStop: PlaySession | null = this.currentSession;
     this.currentSession = null;
 
@@ -704,6 +938,10 @@ export class AbstpPlayerCard extends LitElement {
       return;
     }
     if (this.isPlaying || this.isBuffering) {
+      this.isPlaying = false;
+      this.isBuffering = false;
+      this.awaitingPlaybackStart = false;
+      this.awaitingPlaybackStop = true;
       void this.handleStop();
     } else {
       const startPos: number =
@@ -718,7 +956,17 @@ export class AbstpPlayerCard extends LitElement {
     this.playbackPosition = newPosition;
     if (this.currentItem) {
       AbstpPlayerCard.setStorageItem(`abstp_pos_${this.currentItem.id}`, String(newPosition));
-      await this.handlePlayItem(this.currentItem, newPosition);
+      if (this.isPlaying || this.isBuffering) {
+        this.isBuffering = true;
+        this.isPlaying = false;
+        if (this.selectedPlayer === '') {
+          await this.restartBrowserPlayback(newPosition);
+        } else {
+          await this.restartSpeakerPlayback(newPosition);
+        }
+      } else {
+        await this.handlePlayItem(this.currentItem, newPosition);
+      }
     }
   }
 
@@ -787,40 +1035,59 @@ export class AbstpPlayerCard extends LitElement {
     this.playbackDuration = item.duration || 0;
     this.isPlaying = false;
     this.isBuffering = false;
+    if (AbstpPlayerCard.isPodcastItem(item)) {
+      this.chapters = [];
+      this.chaptersBookId = '';
+      this.showChapters = false;
+    } else {
+      const { itemId } = AbstpPlayerCard.resolveItemIds(item);
+      if (itemId !== this.chaptersBookId) {
+        this.chapters = [];
+        this.chaptersBookId = '';
+        void this.fetchChapters(itemId);
+      }
+    }
   }
 
-  private async restartBrowserPlayback(): Promise<void> {
+  private async restartBrowserPlayback(targetPosition?: number): Promise<void> {
+    const posToPlay: number = targetPosition ?? this.playbackPosition;
+    this.playbackPosition = posToPlay;
+    this.browserStreamStartPos = posToPlay;
+    this.clearPlaybackStopTimeout();
     this.browserPlayer.stop();
-    if (this.hass && this.currentSession) {
+    this.isBuffering = true;
+    this.isPlaying = false;
+    this.awaitingPlaybackStart = true;
+    const prevSession: PlaySession | null = this.currentSession;
+    this.currentSession = null;
+    if (this.hass && prevSession) {
       try {
         await this.hass.callWS({
-          session_id: this.currentSession.session_id,
+          session_id: prevSession.session_id,
           type: 'abstp_controller/stop_session',
         });
       } catch {}
     }
     if (this.currentItem) {
-      await this.handlePlayItem(this.currentItem, this.playbackPosition);
+      await this.handlePlayItem(this.currentItem, posToPlay);
     }
   }
 
-  private async restartSpeakerPlayback(): Promise<void> {
+  private async restartSpeakerPlayback(targetPosition?: number): Promise<void> {
     if (!this.hass || !this.currentItem) {
       return;
     }
+    const posToPlay: number = targetPosition ?? this.playbackPosition;
+    this.playbackPosition = posToPlay;
+    this.clearPlaybackStopTimeout();
     this.stopSpeakerTimer();
     this.isBuffering = true;
     this.isPlaying = false;
     this.awaitingPlaybackStart = true;
     try {
-      await this.hass.callService('abstp_controller', 'stop', {
-        entity_id: this.selectedPlayer,
-      });
-    } catch {}
-    try {
       const { itemId, episodeId } = AbstpPlayerCard.resolveItemIds(this.currentItem);
       await this.hass.callService('abstp_controller', 'play', {
-        current_time: this.playbackPosition,
+        current_time: posToPlay,
         entity_id: this.selectedPlayer,
         episode_id: episodeId,
         item_id: itemId,
@@ -828,10 +1095,22 @@ export class AbstpPlayerCard extends LitElement {
       });
     } catch {
       this.isBuffering = false;
-      this.awaitingPlaybackStart = false;
-    } finally {
+      this.isPlaying = false;
       this.awaitingPlaybackStart = false;
     }
+    window.setTimeout((): void => {
+      if (this.awaitingPlaybackStart) {
+        this.awaitingPlaybackStart = false;
+        if (this.isBuffering && this.selectedPlayer && this.hass) {
+          const entityState: string | undefined = this.hass.states[this.selectedPlayer]?.state;
+          if (entityState === 'playing') {
+            this.isBuffering = false;
+            this.isPlaying = true;
+            this.startSpeakerTimer();
+          }
+        }
+      }
+    }, 3000);
   }
 
   private async applySpeedIfChanged(): Promise<void> {
@@ -845,9 +1124,9 @@ export class AbstpPlayerCard extends LitElement {
     this.isBuffering = true;
     this.isPlaying = false;
     if (this.selectedPlayer === '') {
-      await this.restartBrowserPlayback();
+      await this.restartBrowserPlayback(this.playbackPosition);
     } else {
-      await this.restartSpeakerPlayback();
+      await this.restartSpeakerPlayback(this.playbackPosition);
     }
   }
 
@@ -863,7 +1142,14 @@ export class AbstpPlayerCard extends LitElement {
     const roundedVol: number = Math.round(Math.min(1.0, Math.max(0.0, val)) * 10) / 10;
     this.volumeLevel = roundedVol;
     if (this.selectedPlayer === '') {
-      this.browserPlayer.setVolume(roundedVol);
+      this.browserVolume = roundedVol;
+      if (this.isMuted && roundedVol > 0) {
+        this.isMuted = false;
+        this.browserMuted = false;
+        AbstpPlayerCard.setStorageItem(this.getCardStorageKey('browser_muted'), 'false');
+      }
+      AbstpPlayerCard.setStorageItem(this.getCardStorageKey('browser_volume'), String(roundedVol));
+      this.browserPlayer.setVolume(this.isMuted ? 0 : roundedVol);
     } else if (this.hass) {
       await this.hass.callService('media_player', 'volume_set', {
         entity_id: this.selectedPlayer,
@@ -875,6 +1161,11 @@ export class AbstpPlayerCard extends LitElement {
   private async handleToggleMute(): Promise<void> {
     this.isMuted = !this.isMuted;
     if (this.selectedPlayer === '') {
+      this.browserMuted = this.isMuted;
+      AbstpPlayerCard.setStorageItem(
+        this.getCardStorageKey('browser_muted'),
+        String(this.browserMuted),
+      );
       this.browserPlayer.setVolume(this.isMuted ? 0 : this.volumeLevel);
     } else if (this.hass) {
       await this.hass.callService('media_player', 'volume_mute', {
@@ -969,8 +1260,26 @@ export class AbstpPlayerCard extends LitElement {
     this.showDeviceMenu = false;
   }
 
+  private toggleChapters(): void {
+    if (this.hasNoNavigableChapters()) {
+      return;
+    }
+    void this.closeSpeedPopover();
+    this.showLibrary = false;
+    this.showChapters = !this.showChapters;
+    this.showVolumePopover = false;
+    this.showDeviceMenu = false;
+    if (this.showChapters && this.currentItem) {
+      const { itemId } = AbstpPlayerCard.resolveItemIds(this.currentItem);
+      if (this.chaptersBookId !== itemId) {
+        void this.fetchChapters(itemId);
+      }
+    }
+  }
+
   private toggleLibrary(): void {
     void this.closeSpeedPopover();
+    this.showChapters = false;
     this.showLibrary = !this.showLibrary;
     this.showVolumePopover = false;
     this.showDeviceMenu = false;
@@ -1064,7 +1373,9 @@ export class AbstpPlayerCard extends LitElement {
         ${
           this.showLibrary
             ? this.renderLibrarySection(filteredInProgress, filteredBooks, filteredPodcasts, lang)
-            : html``
+            : this.showChapters
+              ? this.renderChaptersSection(lang)
+              : html``
         }
       </ha-card>
     `;
@@ -1239,11 +1550,12 @@ export class AbstpPlayerCard extends LitElement {
   private static resolveHeroCoverAndAuthor(
     item: MediaItem | PodcastEpisode | InProgressItem | null,
   ): {
-    coverId: string;
     author: string;
+    coverId: string;
+    narrator: string;
   } {
     if (!item) {
-      return { author: '', coverId: '' };
+      return { author: '', coverId: '', narrator: '' };
     }
     const coverId: string = 'podcast_id' in item && item.podcast_id ? item.podcast_id : item.id;
     const author: string =
@@ -1254,7 +1566,8 @@ export class AbstpPlayerCard extends LitElement {
           : 'podcast_title' in item && item.podcast_title
             ? (item.podcast_title as string)
             : '';
-    return { author, coverId };
+    const narrator: string = 'narrator' in item && item.narrator ? item.narrator : '';
+    return { author, coverId, narrator };
   }
 
   private calculateTimelineMetrics(): {
@@ -1297,12 +1610,14 @@ export class AbstpPlayerCard extends LitElement {
 
   private renderHeroPlayer(lang: string, allowedPlayers: string[]): TemplateResult {
     const item: MediaItem | PodcastEpisode | InProgressItem | null = this.currentItem;
+    const isPodcast: boolean = AbstpPlayerCard.isPodcastItem(item);
     const title: string = item
       ? 'episode_title' in item && item.episode_title
         ? item.episode_title
         : item.title
       : localize('card.no_active_track', lang);
-    const { coverId, author } = AbstpPlayerCard.resolveHeroCoverAndAuthor(item);
+    const { coverId, author, narrator } = AbstpPlayerCard.resolveHeroCoverAndAuthor(item);
+    const currentChapter: ChapterItem | null = this.getCurrentChapter();
     const {
       effectiveDuration,
       effectivePosition,
@@ -1318,26 +1633,50 @@ export class AbstpPlayerCard extends LitElement {
 
         <div class="now-playing-body">
           <div class="player-cover">
+            <div class="placeholder">${isPodcast ? podcastIcon : audiobookIcon}</div>
             ${
               coverId
                 ? html`
                   <img
                     src="/api/abstp_controller/cover/${coverId}"
-                    alt="${title}"
+                    alt=""
                     loading="lazy"
+                    @error=${(e: Event): void => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
                   />
                 `
-                : html`<div class="placeholder">${libraryIcon}</div>`
+                : html``
             }
           </div>
           <div class="player-meta">
             <div class="player-title" title="${title}">${title}</div>
-            ${author ? html`<div class="player-author" title="${author}">${author}</div>` : html``}
+            ${
+              author
+                ? html`
+                  <div class="player-author" title="${author}">
+                    <span class="meta-icon author-icon" aria-hidden="true">${isPodcast ? microphoneIcon : authorIcon}</span>
+                    <span>${author}</span>
+                  </div>
+                `
+                : html``
+            }
+            ${
+              narrator
+                ? html`
+                  <div class="player-narrator" title="${narrator}">
+                    <span class="meta-icon narrator-icon" aria-hidden="true">${microphoneIcon}</span>
+                    <span>${narrator}</span>
+                  </div>
+                `
+                : html``
+            }
             ${
               this.playbackDuration > 0
                 ? html`
                   <div class="player-duration">
-                    ⏱ ${AbstpPlayerCard.formatTime(this.playbackDuration)}
+                    <span class="meta-icon timer-icon" aria-hidden="true">${timerIcon}</span>
+                    <span>${AbstpPlayerCard.formatTime(this.playbackDuration)}</span>
                   </div>
                 `
                 : html``
@@ -1371,6 +1710,16 @@ export class AbstpPlayerCard extends LitElement {
             </span>
             <span>-${AbstpPlayerCard.formatTime(remainingSeconds)}</span>
           </div>
+          ${
+            currentChapter
+              ? html`
+                <div class="chapter-label" title="${currentChapter.title}">
+                  <span class="chapter-label-icon" aria-hidden="true">${chaptersIcon}</span>
+                  <span class="chapter-label-text">${currentChapter.title}</span>
+                </div>
+              `
+              : html``
+          }
         </div>
 
         ${this.renderControlsBar(lang)}
@@ -1549,6 +1898,7 @@ export class AbstpPlayerCard extends LitElement {
   private renderControlsBar(lang: string): TemplateResult {
     const skipSec: number = this.config?.skip_seconds ?? DEFAULT_SKIP_SECONDS;
     const isMutedState: boolean = this.isMuted || this.volumeLevel === 0;
+    const hasNoChapters: boolean = this.hasNoNavigableChapters();
 
     return html`
       <div class="controls-bar">
@@ -1557,6 +1907,15 @@ export class AbstpPlayerCard extends LitElement {
         <div class="controls-right-group">
           ${this.renderSpeedControls(lang)}
           ${this.renderVolumeControls(lang, isMutedState)}
+
+          <button
+            class="ctrl-btn ctrl-btn-chapters icon-btn ${this.showChapters ? 'active' : ''}"
+            @click=${(): void => this.toggleChapters()}
+            ?disabled=${hasNoChapters}
+            title="${hasNoChapters ? '' : localize('card.chapters', lang)}"
+          >
+            ${chaptersIcon}
+          </button>
 
           <button
             class="ctrl-btn ctrl-btn-library icon-btn ${this.showLibrary ? 'active' : ''}"
@@ -1673,6 +2032,55 @@ export class AbstpPlayerCard extends LitElement {
     `;
   }
 
+  private renderChaptersSection(lang: string): TemplateResult {
+    const currentChapter: ChapterItem | null = this.getCurrentChapter();
+
+    return html`
+      <div class="chapters-section">
+        <div class="chapters-header">
+          <span class="chapters-header-title">
+            ${localize('card.chapters', lang)} (${this.chapters.length})
+          </span>
+        </div>
+
+        ${
+          this.isLoadingChapters
+            ? html`<div class="empty-state">${localize('card.loading', lang)}</div>`
+            : this.chapters.length <= 1
+              ? html`<div class="empty-state">${localize('card.no_chapters', lang)}</div>`
+              : html`
+                <div class="chapters-list">
+                  ${this.chapters.map((ch: ChapterItem, index: number): TemplateResult => {
+                    const isActive: boolean = currentChapter?.id === ch.id;
+                    return html`
+                      <div
+                        class="chapter-item ${isActive ? 'active' : ''}"
+                        @click=${(): void => {
+                          void this.handleChapterClick(ch);
+                        }}
+                      >
+                        <div class="chapter-item-left">
+                          <span class="chapter-item-index">${index + 1}</span>
+                          <span class="chapter-item-title" title="${ch.title}">
+                            ${ch.title}
+                          </span>
+                        </div>
+                        <div class="chapter-item-right">
+                          <span class="chapter-item-duration">
+                            <span class="meta-icon timer-icon" aria-hidden="true">${timerIcon}</span>
+                            <span>${AbstpPlayerCard.formatTime(ch.duration)}</span>
+                          </span>
+                        </div>
+                      </div>
+                    `;
+                  })}
+                </div>
+              `
+        }
+      </div>
+    `;
+  }
+
   private isItemActive(item: InProgressItem): boolean {
     if (!this.currentItem) {
       return false;
@@ -1699,10 +2107,10 @@ export class AbstpPlayerCard extends LitElement {
         }}
       >
         <div class="card-cover">
-          <div class="placeholder">${item.media_type === 'podcast' ? '🎙️' : '📖'}</div>
+          <div class="placeholder">${item.media_type === 'podcast' ? podcastIcon : audiobookIcon}</div>
           <img
             src="/api/abstp_controller/cover/${item.id}"
-            alt="${item.title}"
+            alt=""
             loading="lazy"
             @error=${(e: Event): void => {
               (e.target as HTMLElement).style.display = 'none';
@@ -1722,8 +2130,8 @@ export class AbstpPlayerCard extends LitElement {
           }
         </div>
         <div class="card-info">
-          <div class="card-title" title="${titleText}">${titleText}</div>
           <div class="card-author" title="${subtitleText}">${subtitleText}</div>
+          <div class="card-title" title="${titleText}">${titleText}</div>
         </div>
       </div>
     `;
@@ -1760,10 +2168,10 @@ export class AbstpPlayerCard extends LitElement {
               }}
             >
               <div class="card-cover">
-                <div class="placeholder">📖</div>
+                <div class="placeholder">${audiobookIcon}</div>
                 <img
                   src="/api/abstp_controller/cover/${book.id}"
-                  alt="${book.title}"
+                  alt=""
                   loading="lazy"
                   @error=${(e: Event): void => {
                     (e.target as HTMLElement).style.display = 'none';
@@ -1789,8 +2197,8 @@ export class AbstpPlayerCard extends LitElement {
                 }
               </div>
               <div class="card-info">
-                <div class="card-title" title="${book.title}">${book.title}</div>
                 <div class="card-author" title="${book.author}">${book.author}</div>
+                <div class="card-title" title="${book.title}">${book.title}</div>
               </div>
             </div>
           `;
@@ -1815,10 +2223,10 @@ export class AbstpPlayerCard extends LitElement {
               }}
             >
               <div class="card-cover">
-                <div class="placeholder">🎙️</div>
+                <div class="placeholder">${podcastIcon}</div>
                 <img
                   src="/api/abstp_controller/cover/${podcastId}"
-                  alt="${ep.title}"
+                  alt=""
                   loading="lazy"
                   @error=${(e: Event): void => {
                     (e.target as HTMLElement).style.display = 'none';
@@ -1845,9 +2253,7 @@ export class AbstpPlayerCard extends LitElement {
               </div>
               <div class="card-info">
                 <div class="card-title" title="${ep.title}">${ep.title}</div>
-                <div class="card-author">
-                  ⏱ ${AbstpPlayerCard.formatTime(ep.duration)}
-                </div>
+                <div class="card-author">${AbstpPlayerCard.formatTime(ep.duration)}</div>
               </div>
             </div>
           `;
@@ -1902,10 +2308,10 @@ export class AbstpPlayerCard extends LitElement {
               }}
             >
               <div class="card-cover">
-                <div class="placeholder">🎙️</div>
+                <div class="placeholder">${podcastIcon}</div>
                 <img
                   src="/api/abstp_controller/cover/${podcast.id}"
-                  alt="${podcast.title}"
+                  alt=""
                   loading="lazy"
                   @error=${(e: Event): void => {
                     (e.target as HTMLElement).style.display = 'none';
@@ -1913,11 +2319,11 @@ export class AbstpPlayerCard extends LitElement {
                 />
               </div>
               <div class="card-info">
-                <div class="card-title" title="${podcast.title}">
-                  ${podcast.title}
-                </div>
                 <div class="card-author" title="${podcast.author}">
                   ${podcast.author}
+                </div>
+                <div class="card-title" title="${podcast.title}">
+                  ${podcast.title}
                 </div>
               </div>
             </div>

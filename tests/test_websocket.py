@@ -35,6 +35,7 @@ async def test_websocket_handlers_registration(hass: HomeAssistant) -> None:
                 author="Frank Herbert",
                 media_type="book",
                 cover_url="/api/covers/1",
+                narrator="George Guidall",
                 duration=36000.0,
                 progress=0.0,
             )

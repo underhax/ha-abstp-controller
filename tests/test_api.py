@@ -109,6 +109,7 @@ async def test_get_books_success(mock_session: MagicMock) -> None:
                 "coverUrl": "/api/proxy/covers/book_1",
                 "duration": 36000.0,
                 "progress": 1200.0,
+                "narrator": "George Guidall",
                 "isFinished": True,
             }
         ]
@@ -121,6 +122,7 @@ async def test_get_books_success(mock_session: MagicMock) -> None:
     assert books[0].id == "book_1"
     assert books[0].title == "Dune"
     assert books[0].author == "Frank Herbert"
+    assert books[0].narrator == "George Guidall"
     assert books[0].media_type == "book"
     assert books[0].is_finished is True
 
@@ -308,3 +310,77 @@ async def test_get_in_progress_unauthorized(mock_session: MagicMock) -> None:
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     with pytest.raises(AbstpAuthError):
         _ = await client.async_get_in_progress()
+
+
+async def test_get_book_chapters_success(mock_session: MagicMock) -> None:
+    """Test fetching audiobook chapters successfully."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(
+        return_value=[
+            {
+                "id": 0,
+                "title": "Chapter 1",
+                "start": 0.0,
+                "end": 120.0,
+                "duration": 120.0,
+            },
+            {
+                "id": 1,
+                "title": "Chapter 2",
+                "start": 120.0,
+                "end": 300.0,
+                "duration": 180.0,
+            },
+        ]
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    chapters = await client.async_get_book_chapters("book_1")
+    assert len(chapters) == 2
+    assert chapters[0].id == 0
+    assert chapters[0].title == "Chapter 1"
+    assert chapters[0].start == 0.0
+    assert chapters[0].end == 120.0
+    assert chapters[0].duration == 120.0
+    assert chapters[1].id == 1
+    assert chapters[1].title == "Chapter 2"
+
+
+async def test_get_book_chapters_empty_or_invalid(mock_session: MagicMock) -> None:
+    """Test handling of empty or non-list chapter responses."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value={"error": "no chapters"})
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    chapters = await client.async_get_book_chapters("book_empty")
+    assert chapters == []
+
+
+async def test_get_book_chapters_unauthorized(mock_session: MagicMock) -> None:
+    """Test get_book_chapters raising AbstpAuthError on authentication failure."""
+    mock_response = MagicMock()
+    mock_response.status = 401
+    mock_response.raise_for_status = MagicMock()
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpAuthError):
+        _ = await client.async_get_book_chapters("book_1")
+
+
+async def test_get_book_chapters_connection_error(mock_session: MagicMock) -> None:
+    """Test get_book_chapters raising AbstpConnectionError on network failure."""
+    err = aiohttp.ClientConnectorError(
+        connection_key=MagicMock(), os_error=OSError("network error")
+    )
+    set_mock_response(mock_session, err)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpConnectionError):
+        _ = await client.async_get_book_chapters("book_1")

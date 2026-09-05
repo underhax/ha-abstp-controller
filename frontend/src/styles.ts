@@ -168,7 +168,8 @@ export const cardStyles: CSSResult = css`
     background: rgb(181, 128, 57);
   }
 
-  .device-menu-item.active {
+  .device-menu-item.active,
+  .device-menu-item.active:hover {
     background: rgb(160, 96, 16);
     color: #fff;
     font-weight: 600;
@@ -248,6 +249,12 @@ export const cardStyles: CSSResult = css`
     z-index: 1;
   }
 
+  .player-cover .placeholder .icon {
+    width: 48px;
+    height: 48px;
+    color: #e5a958;
+  }
+
   .player-meta {
     display: flex;
     flex-direction: column;
@@ -267,24 +274,45 @@ export const cardStyles: CSSResult = css`
     text-overflow: ellipsis;
   }
 
-  .player-author {
+  .player-author,
+  .player-narrator {
     font-size: 1.05rem;
-    font-weight:300;
+    font-weight: 300;
     color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity:0.9;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .meta-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0.6;
+    position: relative;
+    left: -2px;
+  }
+
+  .meta-icon .icon {
+    width: 18px;
+    height: 18px;
   }
 
   .player-duration {
-    font-size: 0.95rem;
-    font-weight:300;
+    font-size: 0.85rem;
+    font-weight: 300;
     color: #fff;
     display: flex;
     align-items: center;
-    gap: 4px;
-    opacity:0.9;
+    gap: 2px;
+    opacity: 0.85;
   }
 
   .timeline-container {
@@ -292,6 +320,41 @@ export const cardStyles: CSSResult = css`
     flex-direction: column;
     gap: 4px;
     margin-top: 2px;
+  }
+
+  .chapter-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: #fff;
+    opacity: 0.9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+
+  .chapter-label-icon {
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0.8;
+  }
+
+  .chapter-label-icon .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .chapter-label-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
   }
 
   .time-slider {
@@ -310,10 +373,6 @@ export const cardStyles: CSSResult = css`
     outline: none;
     cursor: pointer;
     transition: height 0.15s ease;
-  }
-
-  .time-slider:hover {
-    height: 8px;
   }
 
   .time-slider::-webkit-slider-thumb {
@@ -403,6 +462,13 @@ export const cardStyles: CSSResult = css`
     opacity: 0.6;
   }
 
+  .ctrl-btn.icon-btn:disabled,
+  .ctrl-btn.icon-btn[disabled] {
+    opacity: 0.25;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
   .ctrl-btn-rewind,
   .ctrl-btn-forward  {
     width: 40px;
@@ -449,10 +515,12 @@ export const cardStyles: CSSResult = css`
     height: 22px;
   }
 
+  .ctrl-btn-chapters,
   .ctrl-btn-library {
     width: 28px;
     height: 28px;
   }
+  .icon-chapters,
   .icon-library {
     width: 22px;
     height: 22px;
@@ -804,6 +872,12 @@ export const cardStyles: CSSResult = css`
     z-index: 1;
   }
 
+  .card-cover .placeholder .icon {
+    width: 48px;
+    height: 48px;
+    color: #e5a958;
+  }
+
   .progress-bar-bg {
     position: absolute;
     bottom: 0;
@@ -854,11 +928,14 @@ export const cardStyles: CSSResult = css`
 
   .card-author {
     font-size: 0.72rem;
+    line-height: 1.3;
+    min-height: 1.3em;
+    max-height: 1.3em;
     color: #000;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity:0.75;
+    opacity: 0.75;
   }
 
   .podcast-header {
@@ -919,5 +996,123 @@ export const cardStyles: CSSResult = css`
     padding: 32px 16px;
     color: var(--secondary-text-color, rgba(255, 255, 255, 0.6));
     font-size: 0.9rem;
+  }
+
+  .chapters-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 5px;
+  }
+
+  .chapters-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0 6px 0;
+    border-bottom: 4px double rgb(166, 94, 3);
+  }
+
+  .chapters-header-title {
+    font-size: 1rem;
+    font-weight: 400;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: rgb(147, 82, 0);
+    border-radius: 10px 10px 0px 0px;
+    padding:6px 16px;
+  }
+
+  .chapters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 440px;
+    overflow-y: auto;
+    padding: 2px;
+    position: relative;
+  }
+
+  .chapter-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgb(166, 97, 5);
+    border: 1px solid rgb(190, 134, 59);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    gap: 12px;
+  }
+
+  .chapter-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--abstp-primary);
+  }
+
+  .chapter-item.active {
+    border-color: var(--abstp-primary);
+    background: rgb(147, 82, 0);
+  }
+
+  .chapter-item-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    overflow: hidden;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chapter-item-index {
+    font-size: 0.8rem;
+    color: #fff;
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+    min-width: 22px;
+    flex-shrink: 0;
+  }
+
+  .chapter-item-title {
+    font-size: 0.88rem;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chapter-item.active .chapter-item-title {
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .chapter-item-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .chapter-item-duration {
+    font-size: 0.8rem;
+    color: #fff;
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .chapter-item-duration .meta-icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  .chapter-item-duration .meta-icon .icon {
+    width: 13px;
+    height: 13px;
   }
 `;

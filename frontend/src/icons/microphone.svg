@@ -1,0 +1,50 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 682.667 682.667"
+  class="icon"
+  aria-hidden="true"
+>
+  <g
+    fill="none"
+    stroke="currentColor"
+    stroke-width="40"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-miterlimit="10"
+  >
+    <g transform="matrix(1.33333 0 0 -1.33333 0 682.667)">
+      <path
+        d="M0 0c-55.228 0-100 44.771-100 100v120c0 55.229 44.771 100 100 100s100-44.771 100-100V100C100 44.771 55.229 0 0 0"
+        transform="translate(255.999 172)"
+      />
+      <path
+        d="M0 0c0-99.411-80.588-180-179.999-180S-360-99.411-360 0"
+        transform="translate(435.999 272)"
+      />
+      <path
+        d="M0 0h200"
+        transform="translate(155.999 20)"
+      />
+      <path
+        d="M0 0h40"
+        transform="translate(315.999 292)"
+      />
+      <path
+        d="M0 0h40"
+        transform="translate(315.999 372)"
+      />
+      <path
+        d="M0 0h40"
+        transform="translate(155.999 372)"
+      />
+      <path
+        d="M0 0h40"
+        transform="translate(155.999 292)"
+      />
+      <path
+        d="M0 0v-72"
+        transform="translate(255.999 92)"
+      />
+    </g>
+  </g>
+</svg>

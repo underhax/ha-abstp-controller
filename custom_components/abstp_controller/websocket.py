@@ -23,6 +23,7 @@ from .const import DOMAIN, LOGGER, MAX_SPEED, MIN_SPEED
 
 WS_TYPE_GET_LIBRARY = f"{DOMAIN}/get_library"
 WS_TYPE_GET_EPISODES = f"{DOMAIN}/get_episodes"
+WS_TYPE_GET_CHAPTERS = f"{DOMAIN}/get_chapters"
 WS_TYPE_START_SESSION = f"{DOMAIN}/start_session"
 WS_TYPE_STOP_SESSION = f"{DOMAIN}/stop_session"
 
@@ -74,6 +75,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 "id": b.id,
                 "title": b.title,
                 "author": b.author,
+                "narrator": b.narrator,
                 "media_type": b.media_type,
                 "cover_url": f"/api/abstp_controller/cover/{b.id}"
                 if b.cover_url
@@ -186,6 +188,45 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
 
     @websocket_command(
         {
+            vol.Required("type"): WS_TYPE_GET_CHAPTERS,
+            vol.Required("book_id"): str,
+        }
+    )
+    @async_response
+    async def ws_get_chapters(
+        hass_inst: HomeAssistant,
+        connection: ActiveConnection,
+        msg: dict[str, object],
+    ) -> None:
+        """Handle request for audiobook chapters list."""
+        coordinator = _get_active_coordinator(hass_inst)
+        msg_id = cast("int", msg["id"])
+        if not coordinator:
+            connection.send_error(
+                msg_id, "not_loaded", "Integration not ready or loaded"
+            )
+            return
+
+        book_id = str(msg["book_id"])
+        try:
+            chapters = await coordinator.client.async_get_book_chapters(book_id)
+            chapters_data = [
+                {
+                    "id": ch.id,
+                    "title": ch.title,
+                    "start": ch.start,
+                    "end": ch.end,
+                    "duration": ch.duration,
+                }
+                for ch in chapters
+            ]
+            connection.send_result(msg_id, {"chapters": chapters_data})
+        except (AbstpApiError, HomeAssistantError) as err:
+            LOGGER.exception("Failed to fetch chapters for %s", book_id)
+            connection.send_error(msg_id, "fetch_failed", str(err))
+
+    @websocket_command(
+        {
             vol.Required("type"): WS_TYPE_START_SESSION,
             vol.Required("item_id"): str,
             vol.Optional("episode_id"): vol.Any(str, None),
@@ -260,5 +301,6 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
 
     async_register_command(hass, ws_get_library)
     async_register_command(hass, ws_get_episodes)
+    async_register_command(hass, ws_get_chapters)
     async_register_command(hass, ws_start_session)
     async_register_command(hass, ws_stop_session)

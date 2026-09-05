@@ -22,4 +22,16 @@ describe('BrowserAudioPlayer', (): void => {
     player.stop();
     expect(stateSpy).toHaveBeenCalledWith(false);
   });
+
+  it('updates and retrieves volume level within bounds', (): void => {
+    const player: BrowserAudioPlayer = new BrowserAudioPlayer();
+    player.setVolume(0.5);
+    expect(player.getVolume()).toBe(0.5);
+
+    player.setVolume(1.5);
+    expect(player.getVolume()).toBe(1.0);
+
+    player.setVolume(-0.5);
+    expect(player.getVolume()).toBe(0.0);
+  });
 });

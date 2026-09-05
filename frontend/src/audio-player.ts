@@ -39,7 +39,7 @@ export class BrowserAudioPlayer {
     }
 
     this.audio.addEventListener('play', (): void => {
-      this.onStateCallback?.(true);
+      this.onBufferingCallback?.(true);
     });
 
     this.audio.addEventListener('playing', (): void => {
@@ -99,6 +99,10 @@ export class BrowserAudioPlayer {
     }
   }
 
+  public getVolume(): number {
+    return this.audio?.volume ?? 1.0;
+  }
+
   public pause(): void {
     this.audio?.pause();
   }
@@ -116,6 +120,7 @@ export class BrowserAudioPlayer {
     this.audio.pause();
     this.audio.currentTime = 0;
     this.audio.src = '';
+    this.onBufferingCallback?.(false);
     this.onStateCallback?.(false);
   }
 
