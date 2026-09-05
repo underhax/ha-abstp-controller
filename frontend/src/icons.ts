@@ -18,6 +18,7 @@ export const authorIcon: TemplateResult = createIcon('author');
 export const browserIcon: TemplateResult = createIcon('browser');
 export const chaptersIcon: TemplateResult = createIcon('chapters');
 export const chevronDownIcon: TemplateResult = createIcon('chevron-down');
+export const clearIcon: TemplateResult = createIcon('clear');
 export const libraryIcon: TemplateResult = createIcon('library');
 export const microphoneIcon: TemplateResult = createIcon('microphone');
 export const minusIcon: TemplateResult = createIcon('minus');

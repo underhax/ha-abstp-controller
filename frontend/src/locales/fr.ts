@@ -5,6 +5,7 @@ export const fr = {
   'card.browser': 'Navigateur Web',
   'card.buffering': 'Démarrage du flux...',
   'card.chapters': 'Chapitres',
+  'card.clear_search': 'Effacer la recherche',
   'card.continue_listening': 'Continuer',
   'card.decrease_speed': 'Diminuer la vitesse',
   'card.description': 'Carte de lecteur Audiobookshelf transcodé avec contrôle de vitesse',

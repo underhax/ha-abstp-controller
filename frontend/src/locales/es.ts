@@ -5,6 +5,7 @@ export const es = {
   'card.browser': 'Navegador web',
   'card.buffering': 'Iniciando transmisión...',
   'card.chapters': 'Capítulos',
+  'card.clear_search': 'Borrar búsqueda',
   'card.continue_listening': 'Continuar',
   'card.decrease_speed': 'Disminuir velocidad',
   'card.description':

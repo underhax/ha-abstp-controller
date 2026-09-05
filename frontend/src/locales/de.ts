@@ -5,6 +5,7 @@ export const de = {
   'card.browser': 'Webbrowser',
   'card.buffering': 'Stream wird gestartet...',
   'card.chapters': 'Kapitel',
+  'card.clear_search': 'Suche löschen',
   'card.continue_listening': 'Weiterhören',
   'card.decrease_speed': 'Geschwindigkeit verringern',
   'card.description': 'Transkodierte Audiobookshelf-Player-Karte mit Geschwindigkeitskontrolle',

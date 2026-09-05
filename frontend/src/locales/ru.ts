@@ -5,6 +5,7 @@ export const ru = {
   'card.browser': 'Веб-браузер',
   'card.buffering': 'Запуск стрима...',
   'card.chapters': 'Главы',
+  'card.clear_search': 'Очистить поиск',
   'card.continue_listening': 'В процессе',
   'card.decrease_speed': 'Уменьшить скорость',
   'card.description': 'Карточка плеера Audiobookshelf с контролем скорости',

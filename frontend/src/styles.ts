@@ -755,9 +755,18 @@ export const cardStyles: CSSResult = css`
     align-items: center;
   }
 
-  .search-input {
+  .search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
     flex: 1;
-    padding: 9px 14px;
+    width: 100%;
+  }
+
+  .search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 38px 9px 14px;
     border-radius: 10px;
     border: 1px solid rgb(191, 135, 59);
     background: rgb(166, 97, 5);
@@ -768,6 +777,32 @@ export const cardStyles: CSSResult = css`
 
   .search-input:focus {
     border-color: #fff;
+  }
+
+  .search-clear-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    margin: 0;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .search-clear-btn:hover {
+    opacity: 0.75;
+  }
+
+  .search-clear-btn .icon {
+    width: 24px;
+    height: 24px;
   }
 
   .tabs-bar {
@@ -994,8 +1029,9 @@ export const cardStyles: CSSResult = css`
   .empty-state {
     text-align: center;
     padding: 32px 16px;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.6));
+    color: #fff;
     font-size: 0.9rem;
+    opacity: 0.7;
   }
 
   .chapters-section {

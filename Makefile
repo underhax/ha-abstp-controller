@@ -1,4 +1,4 @@
-.PHONY: install frontend-biome frontend-biome-fix  frontend-check frontend-test integration-check integration-test verify frontend-build frontend-build-docker
+.PHONY: install frontend-biome frontend-biome-fix  frontend-check frontend-test integration-check integration-test verify frontend-build
 
 install:
 	uv venv --allow-existing
@@ -43,6 +43,3 @@ verify: frontend-biome frontend-check frontend-test integration-check integratio
 frontend-build:
 	npm --prefix frontend ci --ignore-scripts
 	npm --prefix frontend run build
-
-frontend-build-docker:
-	frontend/build.sh
