@@ -12,6 +12,7 @@ const createIcon = (name: string): TemplateResult => {
   return html`${unsafeSVG(source)}`;
 };
 
+export const audiobookshelfIcon: TemplateResult = createIcon('audiobookshelf');
 export const browserIcon: TemplateResult = createIcon('browser');
 export const chevronDownIcon: TemplateResult = createIcon('chevron-down');
 export const libraryIcon: TemplateResult = createIcon('library');

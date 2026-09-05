@@ -27,6 +27,25 @@ export const cardStyles: CSSResult = css`
     font-family: var(--ha-card-font-family, inherit);
   }
 
+  .card-brand-icon {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .card-brand-icon .icon {
+    width: 26px;
+    height: 26px;
+  }
+
   .icon {
     width: 20px;
     height: 20px;

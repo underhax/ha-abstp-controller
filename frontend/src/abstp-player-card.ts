@@ -15,6 +15,7 @@ import {
   SPEED_PRESETS,
 } from './card-constants.ts';
 import {
+  audiobookshelfIcon,
   browserIcon,
   chevronDownIcon,
   libraryIcon,
@@ -1057,6 +1058,7 @@ export class AbstpPlayerCard extends LitElement {
 
     return html`
       <ha-card>
+        <div class="card-brand-icon" aria-hidden="true">${audiobookshelfIcon}</div>
         ${this.renderHeroPlayer(lang, allowedPlayers)}
 
         ${
