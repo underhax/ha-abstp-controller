@@ -17,11 +17,11 @@ export const cardStyles: CSSResult = css`
     overflow: visible;
     padding: 16px;
     gap: 14px;
-    background: var(--abstp-bg);
+    background: linear-gradient(135deg, rgb(179, 124, 51) 0%, rgb(177, 108, 16) 40%, rgb(159, 96, 13) 70%, rgb(136, 94, 39) 100%);
     border-radius: var(--abstp-radius);
     border: var(--ha-card-border-width, 1px) solid var(--abstp-border);
     box-shadow: var(--ha-card-box-shadow, none);
-    color: var(--primary-text-color, #ffffff);
+    color: #ffffff;
     box-sizing: border-box;
     position: relative;
     font-family: var(--ha-card-font-family, inherit);
@@ -69,7 +69,7 @@ export const cardStyles: CSSResult = css`
   .player-hero {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 5px;
     position: relative;
   }
 
@@ -78,7 +78,7 @@ export const cardStyles: CSSResult = css`
     align-items: center;
     position: relative;
     width: fit-content;
-    margin-bottom: 10px;
+    margin-bottom: 5px;
   }
 
   .device-badge {
@@ -88,8 +88,8 @@ export const cardStyles: CSSResult = css`
     padding: 0;
     background: transparent;
     border: none;
-    color: var(--primary-text-color, #ffffff);
-    font-size: 0.95rem;
+    color: #ffffff;
+    font-size: 1rem;
     font-weight: 500;
     cursor: default;
     user-select: none;
@@ -123,8 +123,8 @@ export const cardStyles: CSSResult = css`
     top: calc(100% + 6px);
     left: 0;
     width: 250px;
-    background: var(--card-background-color, #242426);
-    border: 1px solid var(--abstp-border);
+    background: rgb(169, 103, 14);
+    border: 1px solid #b58039;
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     z-index: 100;
@@ -141,17 +141,17 @@ export const cardStyles: CSSResult = css`
     padding: 8px 14px;
     cursor: pointer;
     transition: background 0.15s ease;
-    color: var(--primary-text-color, #ffffff);
+    color: #ffffff;
     font-size: 0.88rem;
   }
 
   .device-menu-item:hover:not(.disabled) {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(181, 128, 57);
   }
 
   .device-menu-item.active {
-    background: rgba(3, 169, 244, 0.15);
-    color: var(--abstp-primary);
+    background: rgb(160, 96, 16);
+    color: #fff;
     font-weight: 600;
   }
 
@@ -175,29 +175,32 @@ export const cardStyles: CSSResult = css`
 
   .device-item-area {
     font-size: 0.75rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.5));
+    color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    opacity:0.75;
   }
 
   .now-playing-body {
     display: flex;
     gap: 14px;
-    align-items: center;
+    align-items: flex-start;
     width: 100%;
     min-width: 0;
+    padding: 15px 0px 5px;
+    border-top: 1px solid rgb(174, 106, 16);
   }
 
   .player-cover {
-    width: 76px;
-    height: 76px;
-    min-width: 76px;
+    width: 100px;
+    height: 100px;
+    min-width: 100px;
     border-radius: 8px;
     overflow: hidden;
-    background: var(--abstp-sec-bg);
+    background: rgb(150, 95, 23);
     position: relative;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: rgba(0, 154, 199, 0.19) 0px 2px 15px;
     flex-shrink: 0;
   }
 
@@ -236,29 +239,33 @@ export const cardStyles: CSSResult = css`
   }
 
   .player-title {
-    font-size: 1.05rem;
+    font-size: 1.15rem;
     font-weight: 600;
     line-height: 1.3;
-    color: var(--primary-text-color, #ffffff);
+    color: #ffffff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .player-author {
-    font-size: 0.88rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.7));
+    font-size: 1.05rem;
+    font-weight:300;
+    color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    opacity:0.9;
   }
 
   .player-duration {
-    font-size: 0.8rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.5));
+    font-size: 0.95rem;
+    font-weight:300;
+    color: #fff;
     display: flex;
     align-items: center;
     gap: 4px;
+    opacity:0.9;
   }
 
   .timeline-container {
@@ -305,8 +312,8 @@ export const cardStyles: CSSResult = css`
   .time-labels {
     display: flex;
     justify-content: space-between;
-    font-size: 0.8rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.65));
+    font-size: 0.9rem;
+    color: #fff;
     font-variant-numeric: tabular-nums;
   }
 
@@ -316,7 +323,9 @@ export const cardStyles: CSSResult = css`
     align-items: center;
     width: 100%;
     position: relative;
-    margin-top: 4px;
+    margin-top: 5px;
+    padding-top: 10px;
+    border-top: 1px solid rgb(168, 105, 20);
   }
 
   .controls-left-placeholder {
@@ -347,7 +356,7 @@ export const cardStyles: CSSResult = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--primary-text-color, #ffffff);
+    color: #ffffff;
     padding: 0;
     transition: opacity 0.15s ease, transform 0.15s ease;
     user-select: none;
@@ -367,12 +376,12 @@ export const cardStyles: CSSResult = css`
   }
 
   .ctrl-btn.icon-btn .icon {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
   }
 
   .ctrl-btn.icon-btn.active {
-    color: var(--abstp-primary);
+    opacity: 0.6;
   }
 
   .ctrl-btn-rewind,
@@ -382,8 +391,8 @@ export const cardStyles: CSSResult = css`
   }
   .ctrl-btn-rewind .icon,
   .ctrl-btn-forward .icon {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
   }
 
   .skip-value {
@@ -397,17 +406,12 @@ export const cardStyles: CSSResult = css`
     border-radius: 50%;
     background: var(--abstp-primary);
     color: #ffffff;
-    box-shadow: 0 4px 14px rgba(3, 169, 244, 0.4);
     opacity: 1;
   }
 
   .ctrl-btn-play .icon {
-    width: 24px;
-    height: 24px;
-  }
-
-  .ctrl-btn-play .icon-play {
-    transform: translateX(1.5px);
+    width: 26px;
+    height: 26px;
   }
 
   .ctrl-btn-speed {
@@ -435,13 +439,18 @@ export const cardStyles: CSSResult = css`
     height: 22px;
   }
 
-  .ctrl-btn-refresh {
+  .ctrl-btn.ctrl-btn-refresh.icon-btn {
+    background: #935200;
+    border-radius: 50%;
     width: 28px;
     height: 28px;
   }
-  .icon-refresh {
-    width: 20px;
-    height: 20px;
+
+  .ctrl-btn.icon-btn.ctrl-btn-refresh .icon {
+    width: 26px;
+    height: 26px;
+    position: relative;
+    top: 1px;
   }
 
   .speed-btn-minus {
@@ -466,8 +475,8 @@ export const cardStyles: CSSResult = css`
     background: transparent;
     border: none;
     outline: none;
-    color: var(--primary-text-color, #ffffff);
-    font-size: 0.95rem;
+    color: #ffffff;
+    font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
     padding: 0 4px;
@@ -481,8 +490,7 @@ export const cardStyles: CSSResult = css`
   }
 
   .speed-pill-btn.active {
-    color: var(--abstp-primary);
-    opacity: 1;
+    opacity: 0.6;
   }
 
   .popover-anchor {
@@ -498,8 +506,8 @@ export const cardStyles: CSSResult = css`
     bottom: calc(100% + 10px);
     left: 50%;
     transform: translateX(-50%);
-    background: var(--card-background-color, #242426);
-    border: 1px solid var(--abstp-border);
+    background: rgb(169, 103, 14);
+    border: 1px solid #b58039;
     border-radius: 14px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     padding: 10px;
@@ -521,9 +529,9 @@ export const cardStyles: CSSResult = css`
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid transparent;
-    color: var(--primary-text-color, #ffffff);
-    font-size: 0.8rem;
-    font-weight: 600;
+    color: #ffffff;
+    font-size: 0.9rem;
+    font-weight: 500;
     cursor: pointer;
     transition: all 0.12s ease;
     text-align: center;
@@ -534,7 +542,7 @@ export const cardStyles: CSSResult = css`
   }
 
   .speed-preset-btn.active {
-    background: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.15);
   }
 
   .speed-popover-adjust {
@@ -542,7 +550,7 @@ export const cardStyles: CSSResult = css`
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 10px;
     padding: 4px 8px;
   }
@@ -551,9 +559,9 @@ export const cardStyles: CSSResult = css`
     width: 28px;
     height: 28px;
     border-radius: 6px;
-    background: var(--abstp-sec-bg);
-    border: 1px solid var(--abstp-border);
-    color: var(--primary-text-color, #ffffff);
+    background: rgb(177, 120, 44);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #ffffff;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -563,8 +571,8 @@ export const cardStyles: CSSResult = css`
   }
 
   .speed-adjust-btn .icon {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
   }
 
   .speed-adjust-btn:disabled,
@@ -575,14 +583,14 @@ export const cardStyles: CSSResult = css`
   }
 
   .speed-adjust-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.15);
+    opacity:0.75;
   }
 
   .speed-current-display {
     font-size: 1.3rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: var(--primary-text-color, #ffffff);
+    color: #ffffff;
   }
 
   .volume-popover {
@@ -590,11 +598,11 @@ export const cardStyles: CSSResult = css`
     bottom: calc(100% + 10px);
     left: 50%;
     transform: translateX(-50%);
-    background: var(--card-background-color, #242426);
-    border: 1px solid var(--abstp-border);
+    background: rgb(169, 103, 14);
+    border: 1px solid #b58039;
     border-radius: 14px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    padding: 14px 10px;
+    box-shadow: rgba(0, 0, 0, 0.2) 0px 8px 24px;
+    padding: 12px 5px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -643,17 +651,15 @@ export const cardStyles: CSSResult = css`
   .volume-percent-label {
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.75));
+    color: #fff;
     font-variant-numeric: tabular-nums;
   }
 
   .library-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: 6px;
-    border-top: 1px solid var(--abstp-border);
-    padding-top: 14px;
+    gap: 15px;
+    margin-top: 5px;
   }
 
   .search-row {
@@ -666,23 +672,23 @@ export const cardStyles: CSSResult = css`
     flex: 1;
     padding: 9px 14px;
     border-radius: 10px;
-    border: 1px solid var(--abstp-border);
-    background: var(--abstp-sec-bg);
-    color: var(--primary-text-color, #ffffff);
+    border: 1px solid rgb(191, 135, 59);
+    background: rgb(166, 97, 5);
+    color: #ffffff;
     font-size: 0.92rem;
     outline: none;
   }
 
   .search-input:focus {
-    border-color: var(--abstp-primary);
+    border-color: #fff;
   }
 
   .tabs-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--abstp-border);
-    padding-bottom: 8px;
+    border-bottom: 4px double rgb(166, 94, 3);
+    padding-bottom: 4px;
   }
 
   .tabs-group {
@@ -697,16 +703,17 @@ export const cardStyles: CSSResult = css`
     padding: 6px 16px;
     border-radius: 16px;
     font-size: 0.88rem;
-    font-weight: 500;
+    font-weight: 400;
     cursor: pointer;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.65));
+    color: #fff;
     transition: all 0.2s ease;
   }
 
   .tab-btn.active {
-    background: var(--abstp-primary);
+    background: rgb(147, 82, 0);
     color: #ffffff;
-    font-weight: 600;
+    font-weight: 400;
+    border-radius: 10px 10px 0px 0px;
   }
 
   .library-grid {
@@ -723,8 +730,8 @@ export const cardStyles: CSSResult = css`
     flex-direction: column;
     border-radius: 10px;
     overflow: hidden;
-    background: var(--abstp-sec-bg);
-    border: 1px solid var(--abstp-border);
+    background: #f7f7f7;
+    border: 1px solid rgb(166, 94, 3);
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     position: relative;
@@ -734,13 +741,12 @@ export const cardStyles: CSSResult = css`
   }
 
   .media-card:hover {
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+    box-shadow: rgba(0, 154, 199, 0.2) 0px 4px 10px;
     border-color: var(--abstp-primary);
   }
 
   .media-card.active {
     border-color: var(--abstp-primary);
-    box-shadow: 0 0 0 2px var(--abstp-primary);
   }
 
   .card-cover {
@@ -749,7 +755,7 @@ export const cardStyles: CSSResult = css`
     min-height: 130px;
     max-height: 130px;
     position: relative;
-    background: var(--abstp-sec-bg);
+    background: rgb(138, 94, 37);
     display: block;
     overflow: hidden;
   }
@@ -772,7 +778,7 @@ export const cardStyles: CSSResult = css`
     align-items: center;
     justify-content: center;
     font-size: 2.4rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.4));
+    color: #000;
     position: absolute;
     top: 0;
     left: 0;
@@ -785,7 +791,7 @@ export const cardStyles: CSSResult = css`
     left: 0;
     right: 0;
     height: 4px;
-    background: rgba(0, 0, 0, 0.6);
+    background: #f4e1c8;
     z-index: 3;
   }
 
@@ -805,7 +811,8 @@ export const cardStyles: CSSResult = css`
     display: flex;
     flex-direction: column;
     gap: 3px;
-    background: var(--abstp-bg);
+    background: rgb(249, 249, 249);
+    border-top: 1px solid rgb(244, 225, 200);
     box-sizing: border-box;
     flex: 1;
   }
@@ -814,7 +821,7 @@ export const cardStyles: CSSResult = css`
     font-size: 0.82rem;
     font-weight: 600;
     line-height: 1.25;
-    color: var(--primary-text-color, #ffffff);
+    color: #000;
     min-height: 2.5em;
     max-height: 2.5em;
     display: -webkit-box;
@@ -828,10 +835,11 @@ export const cardStyles: CSSResult = css`
 
   .card-author {
     font-size: 0.72rem;
-    color: var(--secondary-text-color, rgba(255, 255, 255, 0.65));
+    color: #000;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    opacity:0.75;
   }
 
   .podcast-header {
