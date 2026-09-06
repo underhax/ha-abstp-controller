@@ -387,6 +387,9 @@ describe('renderTimelineContainer()', (): void => {
     const container: HTMLDivElement = document.createElement('div');
     render(renderTimelineContainer(context), container);
 
+    const timeLabels: HTMLElement | null = container.querySelector('.time-labels span:first-child');
+    expect(timeLabels?.textContent?.trim()).toBe('1:00:00 / 5:00 / 8%');
+
     const chapterLabel: HTMLElement | null = container.querySelector('.chapter-label');
     expect(chapterLabel).not.toBeNull();
     expect(chapterLabel?.getAttribute('title')).toBe('Chapter 1: The Beginning');

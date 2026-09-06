@@ -3,14 +3,16 @@
 from typing import TYPE_CHECKING, cast
 
 import voluptuous as vol
+from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from homeassistant.core import HomeAssistant, ServiceCall
 
-    from .coordinator import AbstpDataUpdateCoordinator
+    from .coordinator import AbstpData, AbstpDataUpdateCoordinator
     from .tracker import SessionTracker
 
 from .const import (
@@ -71,6 +73,143 @@ SET_SPEED_SCHEMA = vol.Schema(
 )
 
 REFRESH_SCHEMA = vol.Schema({})
+
+
+def clean_header_value(value: str | None) -> str:
+    """Normalize whitespace and strip control characters below ascii 32."""
+    if not value:
+        return ""
+    cleaned = "".join(
+        " " if ord(char) < 32 and char != "\t" else char for char in value
+    )
+    return " ".join(cleaned.split())
+
+
+def resolve_media_metadata(
+    hass: HomeAssistant,
+    coordinator: AbstpDataUpdateCoordinator,
+    item_id: str,
+    episode_id: str | None = None,
+) -> tuple[str, str, str | None]:
+    """Resolve display title, artist, and cover URL from catalog metadata."""
+    raw_title = ""
+    raw_author = ""
+    raw_narrator = ""
+    raw_ep_title = ""
+    media_type = "book"
+    has_cover = False
+    item_found = False
+
+    coordinator_data: AbstpData | None = getattr(coordinator, "data", None)
+    if coordinator_data is not None:
+        for inp in coordinator_data.in_progress:
+            if inp.id == item_id:
+                raw_title = inp.title
+                raw_author = inp.author
+                raw_narrator = inp.narrator or ""
+                media_type = inp.media_type
+                has_cover = bool(inp.cover_url)
+                item_found = True
+                if episode_id and inp.episode_id == episode_id and inp.episode_title:
+                    raw_ep_title = inp.episode_title
+                break
+        else:
+            for book in coordinator_data.books:
+                if book.id == item_id:
+                    raw_title = book.title
+                    raw_author = book.author
+                    raw_narrator = book.narrator or ""
+                    media_type = "book"
+                    has_cover = bool(book.cover_url)
+                    item_found = True
+                    break
+            else:
+                for podcast in coordinator_data.podcasts:
+                    if podcast.id == item_id:
+                        raw_title = podcast.title
+                        raw_author = podcast.author
+                        media_type = "podcast"
+                        has_cover = bool(podcast.cover_url)
+                        item_found = True
+                        break
+
+    title = clean_header_value(raw_title)
+    author = clean_header_value(raw_author)
+    narrator = clean_header_value(raw_narrator)
+    ep_title = clean_header_value(raw_ep_title)
+
+    is_podcast = media_type == "podcast" or bool(episode_id)
+
+    if is_podcast:
+        resolved_title = ep_title or title or "Podcast Episode"
+        resolved_artist = title if (title and title != resolved_title) else author
+    else:
+        if title and author and narrator:
+            resolved_title = f"{title} • {author}"
+            resolved_artist = narrator
+        elif title and narrator:
+            resolved_title = title
+            resolved_artist = narrator
+        elif title and author:
+            resolved_title = title
+            resolved_artist = author
+        elif title:
+            resolved_title = title
+            resolved_artist = ""
+        elif author:
+            resolved_title = author
+            resolved_artist = ""
+        else:
+            resolved_title = "Audiobook"
+            resolved_artist = ""
+
+    cover_url: str | None = None
+    if has_cover or not item_found:
+        try:
+            base_url = get_url(hass)
+            cover_url = f"{base_url}/api/abstp_controller/cover/{item_id}"
+        except NoURLAvailableError:
+            cover_url = f"/api/abstp_controller/cover/{item_id}"
+
+    return resolved_title, resolved_artist, cover_url
+
+
+def build_play_media_service_data(
+    hass: HomeAssistant,
+    coordinator: AbstpDataUpdateCoordinator,
+    entity_id: str,
+    stream_url: str,
+    item_id: str,
+    episode_id: str | None = None,
+) -> dict[str, object]:
+    """Construct play_media payload enriched with catalog metadata."""
+    title, artist, cover_url = resolve_media_metadata(
+        hass, coordinator, item_id, episode_id
+    )
+
+    metadata: dict[str, object] = {
+        "metadataType": 0,
+        "title": title,
+    }
+    if artist:
+        metadata["subtitle"] = artist
+        metadata["artist"] = artist
+    if cover_url:
+        metadata["images"] = [{"url": cover_url}]
+
+    extra: dict[str, object] = {
+        "title": title,
+        "metadata": metadata,
+    }
+    if cover_url:
+        extra["thumb"] = cover_url
+
+    return {
+        "entity_id": entity_id,
+        "media_content_id": stream_url,
+        "media_content_type": "audio/aac",
+        "extra": extra,
+    }
 
 
 def _get_entry_components(
@@ -141,14 +280,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 initial_position=session.current_time,
             )
 
+            service_data = build_play_media_service_data(
+                hass=hass,
+                coordinator=coordinator,
+                entity_id=entity_id,
+                stream_url=session.stream_url,
+                item_id=item_id,
+                episode_id=episode_id,
+            )
+
             _ = await hass.services.async_call(
                 "media_player",
                 "play_media",
-                {
-                    "entity_id": entity_id,
-                    "media_content_id": session.stream_url,
-                    "media_content_type": "music",
-                },
+                service_data,
                 blocking=False,
             )
 
@@ -168,12 +312,28 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if entity_ids:
             for entity_id in entity_ids:
                 _ = await tracker.async_stop_session_for_entity(entity_id)
-                _ = await hass.services.async_call(
-                    "media_player",
-                    "media_stop",
-                    {"entity_id": entity_id},
-                    blocking=False,
+                state = hass.states.get(entity_id)
+                features = (
+                    cast("int", state.attributes.get("supported_features", 0))
+                    if state
+                    else MediaPlayerEntityFeature.STOP
                 )
+                service = (
+                    "media_stop"
+                    if (features & MediaPlayerEntityFeature.STOP)
+                    else (
+                        "media_pause"
+                        if (features & MediaPlayerEntityFeature.PAUSE)
+                        else None
+                    )
+                )
+                if service:
+                    _ = await hass.services.async_call(
+                        "media_player",
+                        service,
+                        {"entity_id": entity_id},
+                        blocking=False,
+                    )
 
         if session_id:
             _ = await coordinator.client.async_stop_session(session_id)
@@ -220,14 +380,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             initial_position=current_position,
         )
 
+        service_data = build_play_media_service_data(
+            hass=hass,
+            coordinator=coordinator,
+            entity_id=entity_id,
+            stream_url=new_session.stream_url,
+            item_id=item_id,
+            episode_id=episode_id,
+        )
+
         _ = await hass.services.async_call(
             "media_player",
             "play_media",
-            {
-                "entity_id": entity_id,
-                "media_content_type": "music",
-                "media_content_id": new_session.stream_url,
-            },
+            service_data,
             blocking=True,
         )
 
