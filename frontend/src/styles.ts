@@ -25,6 +25,8 @@ export const cardStyles: CSSResult = css`
     box-sizing: border-box;
     position: relative;
     font-family: var(--ha-card-font-family, inherit);
+    container-type: inline-size;
+    container-name: abstp-card;
   }
 
   .card-brand-icon {
@@ -531,6 +533,7 @@ export const cardStyles: CSSResult = css`
     border-radius: 50%;
     width: 28px;
     height: 28px;
+    flex-shrink: 0;
   }
 
   .ctrl-btn.icon-btn.ctrl-btn-refresh .icon {
@@ -811,12 +814,22 @@ export const cardStyles: CSSResult = css`
     align-items: center;
     border-bottom: 4px double rgb(166, 94, 3);
     padding-bottom: 4px;
+    gap: 8px;
   }
 
   .tabs-group {
     display: flex;
     gap: 8px;
     align-items: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tabs-group::-webkit-scrollbar {
+    display: none;
   }
 
   .tab-btn {
@@ -829,6 +842,8 @@ export const cardStyles: CSSResult = css`
     cursor: pointer;
     color: #fff;
     transition: all 0.2s ease;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .tab-btn.active {
@@ -842,7 +857,7 @@ export const cardStyles: CSSResult = css`
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
     gap: 12px;
-    max-height: 440px;
+    max-height: 210px;
     overflow-y: auto;
     padding: 4px 2px;
   }
@@ -989,43 +1004,6 @@ export const cardStyles: CSSResult = css`
     text-overflow: ellipsis;
   }
 
-  .episodes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 440px;
-    overflow-y: auto;
-  }
-
-  .episode-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-radius: 10px;
-    background: var(--abstp-sec-bg);
-    border: 1px solid var(--abstp-border);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .episode-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--abstp-primary);
-  }
-
-  .episode-item.active {
-    border-color: var(--abstp-primary);
-    background: rgba(3, 169, 244, 0.08);
-  }
-
-  .episode-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    overflow: hidden;
-  }
-
   .empty-state {
     text-align: center;
     padding: 32px 16px;
@@ -1050,7 +1028,7 @@ export const cardStyles: CSSResult = css`
   }
 
   .chapters-header-title {
-    font-size: 1rem;
+    font-size: 0.88rem;
     font-weight: 400;
     color: #ffffff;
     white-space: nowrap;
@@ -1065,7 +1043,7 @@ export const cardStyles: CSSResult = css`
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 440px;
+    max-height: 259px;
     overflow-y: auto;
     padding: 2px;
     position: relative;
@@ -1150,5 +1128,48 @@ export const cardStyles: CSSResult = css`
   .chapter-item-duration .meta-icon .icon {
     width: 13px;
     height: 13px;
+  }
+
+  @container (max-width: 442px) {
+    .tabs-group {
+      gap: 5px;
+    }
+
+    .tab-btn,
+    .chapters-header-title {
+      padding: 5px 10px;
+      font-size: 0.8rem;
+    }
+
+    .library-grid{
+      max-height: 205px;
+    }
+    .chapters-list{
+      max-height: 258px;
+    }
+  }
+
+  @container (max-width: 350px) {
+    .controls-bar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .controls-left-placeholder {
+      display: none;
+    }
+
+    .playback-group {
+      justify-content: center;
+      width: 100%;
+    }
+
+    .controls-right-group {
+      justify-content: center;
+      width: 100%;
+      gap: 16px;
+    }
   }
 `;
