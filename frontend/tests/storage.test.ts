@@ -3,7 +3,6 @@ import { DEFAULT_PLAYBACK_SPEED, DEFAULT_VOLUME_LEVEL } from '../src/card/consta
 import {
   getCardStorageKey,
   getCardStorageScope,
-  getItemPositionStorageKey,
   getStorageItem,
   loadBrowserAudioSettings,
   loadSelectedPlayer,
@@ -75,14 +74,10 @@ describe('getCardStorageScope()', (): void => {
   });
 });
 
-describe('getCardStorageKey() and getItemPositionStorageKey()', (): void => {
+describe('getCardStorageKey()', (): void => {
   it('formats card storage key with scope prefix', (): void => {
     const key = getCardStorageKey('volume', { player_entity: 'media_player.bed' });
     expect(key).toBe('abstp_media_player.bed_volume');
-  });
-
-  it('formats item position storage key', (): void => {
-    expect(getItemPositionStorageKey('item_123')).toBe('abstp_pos_item_123');
   });
 });
 

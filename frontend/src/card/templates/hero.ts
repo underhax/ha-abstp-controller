@@ -438,7 +438,7 @@ export function renderTimelineContainer(context: TimelineContainerContext): Temp
         <span>
           ${
             speedAdjustedDuration > 0
-              ? `${formatTime(speedAdjustedDuration)} / ${formatTime(speedAdjustedPosition)} / ${progressPercent}%`
+              ? `${formatTime(speedAdjustedPosition)} / ${formatTime(speedAdjustedDuration)} / ${progressPercent}%`
               : `${formatTime(speedAdjustedPosition)}`
           }
         </span>

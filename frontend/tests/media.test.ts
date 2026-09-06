@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   filterBooks,
   filterInProgress,
@@ -12,32 +12,7 @@ import {
   resolveInitialPosition,
   resolveItemIds,
 } from '../src/card/media.ts';
-import { setStorageItem } from '../src/card/storage.ts';
 import type { ChapterItem, InProgressItem, MediaItem, PodcastEpisode } from '../src/types.ts';
-
-interface StorageMock {
-  clear: () => void;
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-}
-
-const storageMock: StorageMock = ((): StorageMock => {
-  let store: Record<string, string> = {};
-  return {
-    clear: (): void => {
-      store = {};
-    },
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-  };
-})();
-
-Object.defineProperty(window, 'localStorage', {
-  value: storageMock,
-  writable: true,
-});
 
 describe('isPodcastItem()', (): void => {
   it('returns false for null or undefined input', (): void => {
@@ -196,10 +171,6 @@ describe('resolveHeroCoverAndAuthor()', (): void => {
 });
 
 describe('resolveInitialPosition()', (): void => {
-  beforeEach((): void => {
-    storageMock.clear();
-  });
-
   it('prefers explicit startTime argument when valid', (): void => {
     const item: InProgressItem = {
       author: 'Author',
@@ -228,21 +199,7 @@ describe('resolveInitialPosition()', (): void => {
     expect(resolveInitialPosition(item)).toBe(450);
   });
 
-  it('loads saved position from storage when current_time is missing', (): void => {
-    setStorageItem('abstp_pos_book_saved', '750');
-    const book: MediaItem = {
-      author: 'Author',
-      cover_url: '',
-      duration: 1000,
-      id: 'book_saved',
-      media_type: 'book',
-      progress: 100,
-      title: 'Title',
-    };
-    expect(resolveInitialPosition(book)).toBe(750);
-  });
-
-  it('falls back to item.progress when storage and current_time are absent', (): void => {
+  it('uses item.progress when current_time is absent', (): void => {
     const book: MediaItem = {
       author: 'Author',
       cover_url: '',
@@ -253,6 +210,33 @@ describe('resolveInitialPosition()', (): void => {
       title: 'Title',
     };
     expect(resolveInitialPosition(book)).toBe(350);
+  });
+
+  it('returns 0 when progress has been reset to 0', (): void => {
+    const book: MediaItem = {
+      author: 'Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'book_reset',
+      media_type: 'book',
+      progress: 0,
+      title: 'Title',
+    };
+    expect(resolveInitialPosition(book)).toBe(0);
+  });
+
+  it('returns 0 for current_time of 0 in in_progress item', (): void => {
+    const item: InProgressItem = {
+      author: 'Author',
+      cover_url: '',
+      current_time: 0,
+      duration: 1000,
+      id: 'item_zero',
+      media_type: 'book',
+      progress: 0,
+      title: 'Title',
+    };
+    expect(resolveInitialPosition(item)).toBe(0);
   });
 });
 

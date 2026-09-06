@@ -201,3 +201,39 @@ export function renderDevicePicker(context: DevicePickerContext): TemplateResult
     </div>
   `;
 }
+
+export function filterAvailablePlayers(
+  hass: HomeAssistant | undefined,
+  config?: AbstpCardConfig,
+): string[] {
+  const allPlayers: string[] = Object.keys(hass?.states ?? {}).filter((id: string): boolean => {
+    if (!id.startsWith('media_player.')) {
+      return false;
+    }
+    const lowerId: string = id.toLowerCase();
+    if (lowerId.includes('intent') || lowerId.includes('yandex_station_intents')) {
+      return false;
+    }
+    const entity: HassEntity | undefined = hass?.states[id];
+    if (!entity) {
+      return false;
+    }
+    const entityAttrs = entity.attributes as {
+      device_class?: string;
+      supported_features?: number;
+    };
+    const devClass: string = (entityAttrs.device_class ?? '').toLowerCase();
+    if (devClass === 'intent' || devClass === 'intents') {
+      return false;
+    }
+    const features: number = entityAttrs.supported_features ?? 0;
+    return (features & 512) !== 0;
+  });
+
+  if (config?.player_entities && config.player_entities.length > 0) {
+    const allowed: string[] = config.player_entities;
+    return allPlayers.filter((id: string): boolean => allowed.includes(id));
+  }
+
+  return allPlayers;
+}

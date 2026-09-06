@@ -152,6 +152,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 blocking=False,
             )
 
+        await coordinator.async_request_refresh()
+
     async def handle_stop(call: ServiceCall) -> None:
         """Handle stopping playback and terminating transcoding sessions."""
         components = _get_entry_components(hass)
@@ -176,6 +178,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if session_id:
             _ = await coordinator.client.async_stop_session(session_id)
             _ = await tracker.async_stop_session_by_id(session_id)
+
+        await coordinator.async_request_refresh()
 
     async def handle_set_speed(call: ServiceCall) -> None:
         """Handle dynamic on-the-fly speed switching during playback."""
@@ -226,6 +230,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             },
             blocking=True,
         )
+
+        await coordinator.async_request_refresh()
 
     async def handle_refresh(call: ServiceCall) -> None:
         """Handle reloading library catalog from abstp."""

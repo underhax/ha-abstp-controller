@@ -47,10 +47,6 @@ export function getCardStorageKey(subKey: string, config?: Partial<AbstpCardConf
   return `abstp_${getCardStorageScope(config)}_${subKey}`;
 }
 
-export function getItemPositionStorageKey(itemId: string): string {
-  return `abstp_pos_${itemId}`;
-}
-
 export function loadBrowserAudioSettings(
   config?: Partial<AbstpCardConfig>,
 ): SavedBrowserAudioSettings {

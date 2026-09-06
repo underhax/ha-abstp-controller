@@ -70,6 +70,8 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             )
             return
 
+        await coordinator.async_request_refresh()
+
         books_data = [
             {
                 "id": b.id,
@@ -258,6 +260,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 speed=float(cast("float | int", msg.get("speed", 1.0))),
                 current_time=float(cast("float | int", msg.get("current_time", 0.0))),
             )
+            await coordinator.async_request_refresh()
             connection.send_result(
                 msg_id,
                 {
@@ -294,6 +297,8 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                 _ = await tracker.async_stop_session_by_id(session_id)
             elif coordinator:
                 _ = await coordinator.client.async_stop_session(session_id)
+            if coordinator:
+                await coordinator.async_request_refresh()
             connection.send_result(msg_id, {"status": "stopped"})
         except (AbstpApiError, HomeAssistantError) as err:
             LOGGER.exception("Failed to stop session %s", session_id)

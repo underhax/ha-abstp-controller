@@ -1,5 +1,4 @@
 import type { ChapterItem, InProgressItem, MediaItem, PodcastEpisode } from '../types.ts';
-import { getItemPositionStorageKey, getStorageItem } from './storage.ts';
 
 export function isPodcastItem(
   item: MediaItem | PodcastEpisode | InProgressItem | null | undefined,
@@ -62,15 +61,8 @@ export function resolveInitialPosition(
   if (startTime !== undefined && Number.isFinite(startTime) && startTime >= 0) {
     return startTime;
   }
-  if ('current_time' in item && typeof item.current_time === 'number' && item.current_time > 0) {
-    return item.current_time;
-  }
-  const savedPos: string | null = getStorageItem(getItemPositionStorageKey(item.id));
-  if (savedPos !== null) {
-    const parsed: number = Number.parseFloat(savedPos);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return parsed;
-    }
+  if ('current_time' in item && typeof item.current_time === 'number') {
+    return Math.max(0, item.current_time);
   }
   return Math.max(0, item.progress || 0);
 }
