@@ -4,12 +4,37 @@ import type { BrowserAudioPlayer } from '../src/audio-player.ts';
 import { AudioController } from '../src/card/controllers/audio-controller.ts';
 import type { AbstpCardConfig, HomeAssistant } from '../src/types.ts';
 
+interface StorageMock {
+  clear: () => void;
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+}
+
+const storageMock: StorageMock = ((): StorageMock => {
+  let store: Record<string, string> = {};
+  return {
+    clear: (): void => {
+      store = {};
+    },
+    getItem: (key: string): string | null => store[key] ?? null,
+    setItem: (key: string, value: string): void => {
+      store[key] = value;
+    },
+  };
+})();
+
+Object.defineProperty(window, 'localStorage', {
+  value: storageMock,
+  writable: true,
+});
+
 describe('AudioController', (): void => {
   let host: ReactiveControllerHost;
   let mockConfig: AbstpCardConfig;
   let audio: AudioController;
 
   beforeEach((): void => {
+    storageMock.clear();
     host = {
       addController: vi.fn(),
       removeController: vi.fn(),
@@ -148,5 +173,40 @@ describe('AudioController', (): void => {
     expect(audio.volumeLevel).toBe(0.7);
     expect(audio.isMuted).toBe(false);
     expect(mockPlayer.setVolume).toHaveBeenCalledWith(0.7);
+  });
+
+  it('persists selected speed to localStorage', (): void => {
+    audio.currentSpeed = 1.6;
+    audio.persistSelectedSpeed();
+
+    expect(storageMock.getItem('abstp_default_selected_speed')).toBe('1.6');
+  });
+
+  it('synchronizes browser speed from localStorage with fallback', (): void => {
+    storageMock.setItem('abstp_default_selected_speed', '1.4');
+    audio.currentSpeed = 1.0;
+    audio.syncBrowserSpeed();
+
+    expect(audio.currentSpeed).toBe(1.4);
+
+    storageMock.clear();
+    audio.syncBrowserSpeed();
+    expect(audio.currentSpeed).toBe(1.25);
+  });
+
+  it('synchronizes speaker speed from attribute with fallback', (): void => {
+    audio.syncSpeakerSpeed(1.8);
+    expect(audio.currentSpeed).toBe(1.8);
+
+    audio.syncSpeakerSpeed(undefined);
+    expect(audio.currentSpeed).toBe(1.25);
+  });
+
+  it('marks speed dirty preventing syncPlaybackSpeed overwrite', (): void => {
+    audio.markSpeedDirty();
+    audio.currentSpeed = 1.5;
+    audio.syncPlaybackSpeed(1.0);
+
+    expect(audio.currentSpeed).toBe(1.5);
   });
 });

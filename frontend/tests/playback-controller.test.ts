@@ -2,7 +2,32 @@ import type { ReactiveControllerHost } from 'lit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioController } from '../src/card/controllers/audio-controller.ts';
 import { PlaybackController } from '../src/card/controllers/playback-controller.ts';
+import { getCardStorageKey } from '../src/card/storage.ts';
 import type { AbstpCardConfig, HomeAssistant, MediaItem } from '../src/types.ts';
+
+interface StorageMock {
+  clear: () => void;
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+}
+
+const storageMock: StorageMock = ((): StorageMock => {
+  let store: Record<string, string> = {};
+  return {
+    clear: (): void => {
+      store = {};
+    },
+    getItem: (key: string): string | null => store[key] ?? null,
+    setItem: (key: string, value: string): void => {
+      store[key] = value;
+    },
+  };
+})();
+
+Object.defineProperty(window, 'localStorage', {
+  value: storageMock,
+  writable: true,
+});
 
 describe('PlaybackController', (): void => {
   let host: ReactiveControllerHost;
@@ -12,6 +37,7 @@ describe('PlaybackController', (): void => {
   let playback: PlaybackController;
 
   beforeEach((): void => {
+    storageMock.clear();
     host = {
       addController: vi.fn(),
       removeController: vi.fn(),
@@ -20,7 +46,11 @@ describe('PlaybackController', (): void => {
     };
     mockConfig = {
       default_speed: 1.0,
-      player_entities: ['media_player.abstp_bedroom_speaker'],
+      player_entities: [
+        'media_player.abstp_bedroom_speaker',
+        'media_player.abstp_living_room',
+        'media_player.abstp_speaker_no_speed',
+      ],
       type: 'custom:abstp-player-card',
     };
     mockHass = {
@@ -39,6 +69,23 @@ describe('PlaybackController', (): void => {
             volume_level: 0.5,
           },
           entity_id: 'media_player.abstp_bedroom_speaker',
+          state: 'idle',
+        },
+        'media_player.abstp_living_room': {
+          attributes: {
+            is_volume_muted: false,
+            playback_speed: 1.0,
+            volume_level: 0.8,
+          },
+          entity_id: 'media_player.abstp_living_room',
+          state: 'idle',
+        },
+        'media_player.abstp_speaker_no_speed': {
+          attributes: {
+            is_volume_muted: false,
+            volume_level: 0.8,
+          },
+          entity_id: 'media_player.abstp_speaker_no_speed',
           state: 'idle',
         },
       },
@@ -495,5 +542,136 @@ describe('PlaybackController', (): void => {
     expect(mockHass.callWS).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'abstp_controller/start_session' }),
     );
+  });
+
+  it('retains active speed and updates localStorage when switching to browser during active playback', async (): Promise<void> => {
+    playback.currentItem = {
+      author: 'Speed Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'speed_book',
+      media_type: 'book',
+      progress: 500,
+      title: 'Speed Book',
+    };
+    playback.playbackPosition = 500;
+    playback.isPlaying = true;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    audio.currentSpeed = 1.4;
+    const storageKey = getCardStorageKey('selected_speed', mockConfig);
+    storageMock.setItem(storageKey, '1.0');
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('');
+
+    expect(playback.selectedPlayer).toBe('');
+    expect(audio.currentSpeed).toBe(1.4);
+    expect(storageMock.getItem(storageKey)).toBe('1.4');
+    expect(mockHass.callWS).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speed: 1.4,
+        type: 'abstp_controller/start_session',
+      }),
+    );
+  });
+
+  it('retains active speed and passes it to speaker service when switching speakers during active playback', async (): Promise<void> => {
+    playback.currentItem = {
+      author: 'Speed Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'speed_book',
+      media_type: 'book',
+      progress: 500,
+      title: 'Speed Book',
+    };
+    playback.playbackPosition = 500;
+    playback.isPlaying = true;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    audio.currentSpeed = 1.4;
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('media_player.abstp_living_room');
+
+    expect(playback.selectedPlayer).toBe('media_player.abstp_living_room');
+    expect(audio.currentSpeed).toBe(1.4);
+    expect(mockHass.callService).toHaveBeenCalledWith(
+      'abstp_controller',
+      'play',
+      expect.objectContaining({
+        entity_id: 'media_player.abstp_living_room',
+        speed: 1.4,
+      }),
+    );
+  });
+
+  it('does not re-write storage when switching to browser if active speed already matches stored speed', async (): Promise<void> => {
+    playback.currentItem = {
+      author: 'Speed Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'speed_book',
+      media_type: 'book',
+      progress: 500,
+      title: 'Speed Book',
+    };
+    playback.playbackPosition = 500;
+    playback.isPlaying = true;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    audio.currentSpeed = 1.5;
+    const storageKey = getCardStorageKey('selected_speed', mockConfig);
+    storageMock.setItem(storageKey, '1.5');
+    const setItemSpy = vi.spyOn(storageMock, 'setItem');
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('');
+
+    expect(playback.selectedPlayer).toBe('');
+    expect(audio.currentSpeed).toBe(1.5);
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
+  it('synchronizes speed to target speaker attribute when switching players while inactive', async (): Promise<void> => {
+    playback.isPlaying = false;
+    playback.isBuffering = false;
+    playback.selectedPlayer = '';
+    audio.currentSpeed = 1.0;
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('media_player.abstp_bedroom_speaker');
+
+    expect(playback.selectedPlayer).toBe('media_player.abstp_bedroom_speaker');
+    expect(audio.currentSpeed).toBe(1.6);
+    expect(mockHass.callService).not.toHaveBeenCalled();
+  });
+
+  it('synchronizes speed to browser localStorage setting when switching to browser while inactive', async (): Promise<void> => {
+    playback.isPlaying = false;
+    playback.isBuffering = false;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    audio.currentSpeed = 1.6;
+    const storageKey = getCardStorageKey('selected_speed', mockConfig);
+    storageMock.setItem(storageKey, '1.25');
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('');
+
+    expect(playback.selectedPlayer).toBe('');
+    expect(audio.currentSpeed).toBe(1.25);
+    expect(mockHass.callService).not.toHaveBeenCalled();
+  });
+
+  it('falls back to default speed when switching while inactive and target speaker has no speed attribute', async (): Promise<void> => {
+    playback.isPlaying = false;
+    playback.isBuffering = false;
+    playback.selectedPlayer = '';
+    audio.currentSpeed = 1.5;
+    vi.clearAllMocks();
+
+    await playback.selectPlayer('media_player.abstp_speaker_no_speed');
+
+    expect(playback.selectedPlayer).toBe('media_player.abstp_speaker_no_speed');
+    expect(audio.currentSpeed).toBe(1.0);
+    expect(mockHass.callService).not.toHaveBeenCalled();
   });
 });

@@ -58,11 +58,19 @@ export class AudioController implements ReactiveController {
     this.playbackSpeedDirty = false;
   }
 
+  public persistSelectedSpeed(): void {
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    setStorageItem(getCardStorageKey('selected_speed', config), String(this.currentSpeed));
+  }
+
+  public markSpeedDirty(): void {
+    this.playbackSpeedDirty = true;
+  }
+
   public adjustSpeed(newSpeed: number): void {
     this.currentSpeed = calculateNextSpeed(newSpeed, 0);
     this.playbackSpeedDirty = true;
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    setStorageItem(getCardStorageKey('selected_speed', config), String(this.currentSpeed));
+    this.persistSelectedSpeed();
     this.host.requestUpdate();
   }
 
@@ -154,6 +162,23 @@ export class AudioController implements ReactiveController {
     if (!this.playbackSpeedDirty && playbackSpeed !== undefined && playbackSpeed > 0) {
       this.currentSpeed = playbackSpeed;
     }
+    this.host.requestUpdate();
+  }
+
+  public syncBrowserSpeed(): void {
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    this.currentSpeed = loadSelectedSpeed(config);
+    this.playbackSpeedDirty = false;
+    this.host.requestUpdate();
+  }
+
+  public syncSpeakerSpeed(playbackSpeed?: number): void {
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    this.currentSpeed =
+      playbackSpeed !== undefined && playbackSpeed > 0
+        ? playbackSpeed
+        : (config?.default_speed ?? DEFAULT_PLAYBACK_SPEED);
+    this.playbackSpeedDirty = false;
     this.host.requestUpdate();
   }
 

@@ -12,6 +12,7 @@ import {
   calculateSpeakerProgress,
   resolvePlayPosition,
 } from '../playback.ts';
+import { loadSelectedSpeed } from '../storage.ts';
 import { filterAvailablePlayers } from '../templates/device-picker.ts';
 import type { AudioController } from './audio-controller.ts';
 import { BrowserAudioEngine } from './browser-audio-engine.ts';
@@ -468,19 +469,49 @@ export class PlaybackController implements ReactiveController {
     const wasPlaying: boolean = this.isPlaybackActive();
     const currentPos: number = Math.max(0, this.playbackPosition);
     const itemToResume: MediaItem | PodcastEpisode | InProgressItem | null = this.currentItem;
+    const activeSpeed: number = this.audio.currentSpeed;
 
     if (wasPlaying) {
       await this.stop();
     }
 
     this.selectedPlayer = playerId;
-    this.audio.resetPlaybackSpeed();
     this.syncPlayerState();
 
     if (wasPlaying && itemToResume) {
-      await this.playItem(itemToResume, currentPos);
+      await this.handoverPlayback(itemToResume, currentPos, activeSpeed);
+    } else {
+      this.syncInactivePlayerSpeed();
     }
     this.host.requestUpdate();
+  }
+
+  private async handoverPlayback(
+    item: MediaItem | PodcastEpisode | InProgressItem,
+    position: number,
+    activeSpeed: number,
+  ): Promise<void> {
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    if (this.isBrowserPlayer()) {
+      const targetSpeed: number = loadSelectedSpeed(config);
+      if (activeSpeed !== targetSpeed) {
+        this.audio.currentSpeed = activeSpeed;
+        this.audio.persistSelectedSpeed();
+      }
+    }
+    this.audio.currentSpeed = activeSpeed;
+    this.audio.markSpeedDirty();
+    await this.playItem(item, position);
+  }
+
+  private syncInactivePlayerSpeed(): void {
+    if (this.isBrowserPlayer()) {
+      this.audio.syncBrowserSpeed();
+      return;
+    }
+    const hass: HomeAssistant | undefined = this.options.getHass();
+    const rawSpeed = hass?.states[this.selectedPlayer]?.attributes.playback_speed;
+    this.audio.syncSpeakerSpeed(typeof rawSpeed === 'number' ? rawSpeed : undefined);
   }
 
   public restoreItem(
