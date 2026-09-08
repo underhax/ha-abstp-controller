@@ -143,6 +143,29 @@ async def async_get_browser_default_name(hass: HomeAssistant) -> str:
     )
 
 
+async def async_validate_api(
+    hass: HomeAssistant,
+    url: str,
+    api_key: str,
+) -> str | None:
+    """Validate server reachability and credentials to prevent invalid setups."""
+    session = async_get_clientsession(hass)
+    client = AbstpApiClient(session, url, api_key)
+
+    try:
+        healthy = await client.async_get_health()
+        if not healthy:
+            return "cannot_connect"
+        _ = await client.async_get_books()
+    except AbstpAuthError:
+        return "invalid_auth"
+    except AbstpConnectionError:
+        return "cannot_connect"
+    except AbstpApiError, TimeoutError, ClientError:
+        return "unknown"
+    return None
+
+
 class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Audiobookshelf Transcoder Proxy Controller."""
 
@@ -167,23 +190,10 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
             speed_val: object = user_input.get(CONF_DEFAULT_SPEED, DEFAULT_SPEED)
             speed = float(str(speed_val))
 
-            session = async_get_clientsession(self.hass)
-            client = AbstpApiClient(session, url, api_key)
-
-            try:
-                healthy = await client.async_get_health()
-                if not healthy:
-                    errors["base"] = "cannot_connect"
-                else:
-                    _ = await client.async_get_books()
-            except AbstpAuthError:
-                errors["base"] = "invalid_auth"
-            except AbstpConnectionError:
-                errors["base"] = "cannot_connect"
-            except AbstpApiError, TimeoutError, ClientError:
-                errors["base"] = "unknown"
-
-            if not errors:
+            error_key = await async_validate_api(self.hass, url, api_key)
+            if error_key:
+                errors["base"] = error_key
+            else:
                 _ = await self.async_set_unique_id(url)
                 self._abort_if_unique_id_configured()
 
@@ -338,6 +348,61 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="friendly_names",
             data_schema=vol.Schema(name_schema),
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, object] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of connection parameters for an existing entry."""
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            url = str(user_input[CONF_URL]).strip().rstrip("/")
+            api_key = str(user_input[CONF_API_KEY])
+
+            self._async_abort_entries_match({CONF_URL: url})
+
+            error_key = await async_validate_api(self.hass, url, api_key)
+            if error_key:
+                errors["base"] = error_key
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=url,
+                    data_updates={
+                        CONF_URL: url,
+                        CONF_API_KEY: api_key,
+                    },
+                )
+
+        text_selector = cast(
+            "Callable[[selector.TextSelectorConfig], object]",
+            selector.TextSelector,
+        )
+        api_key_selector = text_selector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_URL): str,
+                vol.Required(CONF_API_KEY): api_key_selector,
+            }
+        )
+
+        suggested_values = user_input or {
+            CONF_URL: entry.data.get(CONF_URL, ""),
+            CONF_API_KEY: entry.data.get(CONF_API_KEY, ""),
+        }
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                schema,
+                suggested_values,
+            ),
+            errors=errors,
         )
 
     @override

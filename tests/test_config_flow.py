@@ -1,12 +1,13 @@
 """Unit tests for the config flow."""
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from homeassistant import config_entries
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -23,6 +24,7 @@ from custom_components.abstp_controller.api import (
 from custom_components.abstp_controller.config_flow import (
     AbstpOptionsFlowHandler,
     async_collect_friendly_names,
+    async_validate_api,
     filter_target_player_ids,
     get_supported_target_player_ids,
     is_supported_target_player,
@@ -37,6 +39,50 @@ from custom_components.abstp_controller.const import (
     DOMAIN,
     SOURCE_BROWSER_ID,
 )
+
+
+class MockConfigEntry(ConfigEntry):
+    """Mock configuration entry for config flow testing."""
+
+    def __init__(
+        self,
+        *,
+        domain: str = DOMAIN,
+        unique_id: str | None = None,
+        data: dict[str, object] | None = None,
+        title: str = DEFAULT_NAME,
+    ) -> None:
+        """Initialize mock entry with default parameters."""
+        super().__init__(
+            domain=domain,
+            unique_id=unique_id,
+            data=data or {},
+            version=1,
+            minor_version=1,
+            title=title,
+            source=config_entries.SOURCE_USER,
+            options={},
+            discovery_keys=MappingProxyType({}),
+            subentries_data=[],
+        )
+
+    async def async_add_to_hass(self, hass: HomeAssistant) -> None:
+        """Register the mock entry directly within Home Assistant entries store."""
+        with patch.object(hass.config_entries, "async_setup", return_value=True):
+            await hass.config_entries.async_add(self)
+
+    async def start_reconfigure_flow(
+        self,
+        hass: HomeAssistant,
+    ) -> ConfigFlowResult:
+        """Start a reconfiguration flow for this mock entry."""
+        return await hass.config_entries.flow.async_init(
+            self.domain,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": self.entry_id,
+            },
+        )
 
 
 async def test_config_flow_user_step_success(hass: HomeAssistant) -> None:
@@ -526,3 +572,252 @@ def test_get_supported_target_player_ids(hass: HomeAssistant) -> None:
 def test_filter_target_player_ids(raw_input: object, expected: list[str]) -> None:
     """Test target player sanitization and invalid item discarding."""
     assert filter_target_player_ids(raw_input) == expected
+
+
+@pytest.mark.parametrize(
+    ("health_return", "health_error", "books_error", "expected"),
+    [
+        (True, None, None, None),
+        (False, None, None, "cannot_connect"),
+        (True, None, AbstpAuthError("auth fail"), "invalid_auth"),
+        (True, AbstpConnectionError("conn fail"), None, "cannot_connect"),
+        (True, None, AbstpApiError("api fail"), "unknown"),
+        (True, None, TimeoutError("timed out"), "unknown"),
+    ],
+)
+async def test_async_validate_api(
+    hass: HomeAssistant,
+    health_return: bool,
+    health_error: Exception | None,
+    books_error: Exception | None,
+    expected: str | None,
+) -> None:
+    """Test API credentials and reachability validation with different outcomes."""
+    with (
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
+            new_callable=AsyncMock,
+            return_value=health_return,
+            side_effect=health_error,
+        ),
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
+            new_callable=AsyncMock,
+            return_value=[],
+            side_effect=books_error,
+        ),
+    ):
+        result = await async_validate_api(
+            hass, "http://abstp.example.com:8099", "secret"
+        )
+        assert result == expected
+
+
+async def test_reconfigure_flow_success(hass: HomeAssistant) -> None:
+    """Test successful reconfiguration of server URL and API key."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://abstp.example.com:8099",
+        data={
+            CONF_URL: "http://abstp.example.com:8099",
+            CONF_API_KEY: "initial_api_key",
+            CONF_DEFAULT_SPEED: 1.0,
+        },
+    )
+    await entry.async_add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result.get("type") == FlowResultType.FORM
+    assert result.get("step_id") == "reconfigure"
+
+    flow_id = str(result.get("flow_id", ""))
+    async_configure = cast(
+        "Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]",
+        hass.config_entries.flow.async_configure,
+    )
+
+    with (
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        result2 = await async_configure(
+            flow_id,
+            {
+                CONF_URL: "http://abstp-new.example.com:8099",
+                CONF_API_KEY: "updated_api_key",
+            },
+        )
+
+    assert result2.get("type") == FlowResultType.ABORT
+    assert result2.get("reason") == "reconfigure_successful"
+    assert entry.data.get(CONF_URL) == "http://abstp-new.example.com:8099"
+    assert entry.data.get(CONF_API_KEY) == "updated_api_key"
+    assert entry.unique_id == "http://abstp-new.example.com:8099"
+
+
+async def test_reconfigure_flow_same_url_new_key(hass: HomeAssistant) -> None:
+    """Test reconfiguration updating only the API key while keeping the same URL."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://abstp.example.com:8099",
+        data={
+            CONF_URL: "http://abstp.example.com:8099",
+            CONF_API_KEY: "initial_api_key",
+            CONF_DEFAULT_SPEED: 1.0,
+        },
+    )
+    await entry.async_add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result.get("type") == FlowResultType.FORM
+    assert result.get("step_id") == "reconfigure"
+
+    flow_id = str(result.get("flow_id", ""))
+    async_configure = cast(
+        "Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]",
+        hass.config_entries.flow.async_configure,
+    )
+
+    with (
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        result2 = await async_configure(
+            flow_id,
+            {
+                CONF_URL: "http://abstp.example.com:8099",
+                CONF_API_KEY: "new_api_key_only",
+            },
+        )
+
+    assert result2.get("type") == FlowResultType.ABORT
+    assert result2.get("reason") == "reconfigure_successful"
+    assert entry.data.get(CONF_URL) == "http://abstp.example.com:8099"
+    assert entry.data.get(CONF_API_KEY) == "new_api_key_only"
+    assert entry.unique_id == "http://abstp.example.com:8099"
+
+
+async def test_reconfigure_flow_duplicate_url(hass: HomeAssistant) -> None:
+    """Test reconfigure aborts when URL is already used by another entry."""
+    entry_primary = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://abstp1.example.com:8099",
+        data={
+            CONF_URL: "http://abstp1.example.com:8099",
+            CONF_API_KEY: "primary_key",
+            CONF_DEFAULT_SPEED: 1.0,
+        },
+    )
+    await entry_primary.async_add_to_hass(hass)
+
+    entry_secondary = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://abstp2.example.com:8099",
+        data={
+            CONF_URL: "http://abstp2.example.com:8099",
+            CONF_API_KEY: "secondary_key",
+            CONF_DEFAULT_SPEED: 1.0,
+        },
+    )
+    await entry_secondary.async_add_to_hass(hass)
+
+    result = await entry_primary.start_reconfigure_flow(hass)
+    assert result.get("type") == FlowResultType.FORM
+    assert result.get("step_id") == "reconfigure"
+
+    flow_id = str(result.get("flow_id", ""))
+    async_configure = cast(
+        "Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]",
+        hass.config_entries.flow.async_configure,
+    )
+
+    result2 = await async_configure(
+        flow_id,
+        {
+            CONF_URL: "http://abstp2.example.com:8099",
+            CONF_API_KEY: "primary_key",
+        },
+    )
+
+    assert result2.get("type") == FlowResultType.ABORT
+    assert result2.get("reason") == "already_configured"
+
+
+@pytest.mark.parametrize(
+    ("side_effect", "health_return", "expected_error"),
+    [
+        (AbstpAuthError("invalid key"), True, "invalid_auth"),
+        (AbstpConnectionError("cannot connect"), True, "cannot_connect"),
+        (None, False, "cannot_connect"),
+        (AbstpApiError("unknown error"), True, "unknown"),
+    ],
+)
+async def test_reconfigure_flow_errors(
+    hass: HomeAssistant,
+    side_effect: Exception | None,
+    health_return: bool,
+    expected_error: str,
+) -> None:
+    """Test error handling and validation during reconfigure flow."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://abstp.example.com:8099",
+        data={
+            CONF_URL: "http://abstp.example.com:8099",
+            CONF_API_KEY: "initial_api_key",
+            CONF_DEFAULT_SPEED: 1.0,
+        },
+    )
+    await entry.async_add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result.get("type") == FlowResultType.FORM
+    assert result.get("step_id") == "reconfigure"
+
+    flow_id = str(result.get("flow_id", ""))
+    async_configure = cast(
+        "Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]",
+        hass.config_entries.flow.async_configure,
+    )
+
+    with (
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
+            new_callable=AsyncMock,
+            return_value=health_return,
+            side_effect=side_effect if health_return else None,
+        ),
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
+            new_callable=AsyncMock,
+            side_effect=side_effect if health_return and side_effect else None,
+            return_value=[],
+        ),
+    ):
+        result2 = await async_configure(
+            flow_id,
+            {
+                CONF_URL: "http://abstp-new.example.com:8099",
+                CONF_API_KEY: "attempted_key",
+            },
+        )
+
+    assert result2.get("type") == FlowResultType.FORM
+    errors = cast("dict[str, str]", result2.get("errors", {}))
+    assert errors.get("base") == expected_error

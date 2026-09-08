@@ -28,6 +28,14 @@
       "friendly_names": {
         "title": "Nombres de reproductores virtuales",
         "description": "Opcionalmente configure un nombre para cada reproductor de medios seleccionado."
+      },
+      "reconfigure": {
+        "title": "Reconfigurar Audiobookshelf Transcoder Proxy Controller",
+        "description": "Actualice la URL y la clave API de su instancia de abstp.",
+        "data": {
+          "url": "URL del servidor proxy",
+          "api_key": "Clave secreta de la API del proxy"
+        }
       }
     },
     "error": {
@@ -36,7 +44,8 @@
       "unknown": "Se ha producido un error inesperado."
     },
     "abort": {
-      "already_configured": "Esta instancia de proxy ya está configurada."
+      "already_configured": "Esta instancia de proxy ya está configurada.",
+      "reconfigure_successful": "La reconfiguración se realizó correctamente."
     }
   },
   "options": {

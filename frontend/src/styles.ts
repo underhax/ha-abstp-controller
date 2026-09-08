@@ -824,6 +824,10 @@ export const cardStyles: CSSResult = css`
     border-color: #fff;
   }
 
+  .search-input::placeholder {
+    color: #d9bf9d;
+  }
+
   .search-clear-btn {
     position: absolute;
     right: 8px;

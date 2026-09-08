@@ -28,6 +28,14 @@
       "friendly_names": {
         "title": "Namen der virtuellen Player",
         "description": "Legen Sie optional einen Anzeigenamen für jeden ausgewählten Mediaplayer fest."
+      },
+      "reconfigure": {
+        "title": "Audiobookshelf Transcoder Proxy Controller neu konfigurieren",
+        "description": "Aktualisieren Sie die URL und den API-Schlüssel Ihrer abstp-Instanz.",
+        "data": {
+          "url": "Proxy-Server-URL",
+          "api_key": "Geheimer Proxy-API-Schlüssel"
+        }
       }
     },
     "error": {
@@ -36,7 +44,8 @@
       "unknown": "Unerwarteter Fehler aufgetreten."
     },
     "abort": {
-      "already_configured": "Diese Proxy-Instanz ist bereits konfiguriert."
+      "already_configured": "Diese Proxy-Instanz ist bereits konfiguriert.",
+      "reconfigure_successful": "Die Neukonfiguration war erfolgreich."
     }
   },
   "options": {

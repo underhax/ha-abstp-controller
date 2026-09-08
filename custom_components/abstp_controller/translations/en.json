@@ -28,6 +28,14 @@
       "friendly_names": {
         "title": "Virtual Player Names",
         "description": "Optionally set a display name for each selected media player. Leave a field empty to use its entity-derived name."
+      },
+      "reconfigure": {
+        "title": "Reconfigure Audiobookshelf Transcoder Proxy Controller",
+        "description": "Update the URL and API key of your abstp instance.",
+        "data": {
+          "url": "Proxy Server URL",
+          "api_key": "Proxy API Secret Key"
+        }
       }
     },
     "error": {
@@ -36,7 +44,8 @@
       "unknown": "Unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This proxy instance is already configured."
+      "already_configured": "This proxy instance is already configured.",
+      "reconfigure_successful": "Reconfiguration was successful."
     }
   },
   "options": {

@@ -28,6 +28,14 @@
       "friendly_names": {
         "title": "Noms des lecteurs virtuels",
         "description": "Définissez éventuellement un nom d'affichage pour chaque lecteur multimédia sélectionné."
+      },
+      "reconfigure": {
+        "title": "Reconfigurer Audiobookshelf Transcoder Proxy Controller",
+        "description": "Mettez à jour l'URL et la clé API de votre instance abstp.",
+        "data": {
+          "url": "URL du serveur proxy",
+          "api_key": "Clé secrète de l'API proxy"
+        }
       }
     },
     "error": {
@@ -36,7 +44,8 @@
       "unknown": "Une erreur inattendue est survenue."
     },
     "abort": {
-      "already_configured": "Cette instance de proxy est déjà configurée."
+      "already_configured": "Cette instance de proxy est déjà configurée.",
+      "reconfigure_successful": "La reconfiguration a réussi."
     }
   },
   "options": {
