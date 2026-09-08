@@ -10,30 +10,6 @@ import type {
   PodcastEpisode,
 } from '../src/types.ts';
 
-interface StorageMock {
-  clear: () => void;
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-}
-
-const storageMock: StorageMock = ((): StorageMock => {
-  let store: Record<string, string> = {};
-  return {
-    clear: (): void => {
-      store = {};
-    },
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-  };
-})();
-
-Object.defineProperty(window, 'localStorage', {
-  value: storageMock,
-  writable: true,
-});
-
 describe('LibraryController', (): void => {
   let host: ReactiveControllerHost;
   let mockConfig: AbstpCardConfig;
@@ -41,7 +17,6 @@ describe('LibraryController', (): void => {
   let library: LibraryController;
 
   beforeEach((): void => {
-    storageMock.clear();
     host = {
       addController: vi.fn(),
       removeController: vi.fn(),
@@ -241,6 +216,98 @@ describe('LibraryController', (): void => {
     expect(library.isRefreshing).toBe(false);
   });
 
+  it('ignores stale library responses after a newer response restores the current item', async (): Promise<void> => {
+    let resolveFirst: ((value: object) => void) | undefined;
+    let resolveSecond: ((value: object) => void) | undefined;
+    const firstResponse: Promise<object> = new Promise((resolve): void => {
+      resolveFirst = resolve;
+    });
+    const secondResponse: Promise<object> = new Promise((resolve): void => {
+      resolveSecond = resolve;
+    });
+    const onRestoreItem = vi.fn();
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): null => null,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.living_room',
+      onRestoreItem,
+    });
+    const callWS = mockHass.callWS as ReturnType<typeof vi.fn>;
+    callWS
+      .mockImplementationOnce(() => firstResponse)
+      .mockImplementationOnce(() => secondResponse)
+      .mockResolvedValue({ chapters: [] });
+
+    const firstFetch: Promise<void> = customLibrary.fetchLibrary();
+    const secondFetch: Promise<void> = customLibrary.fetchLibrary();
+
+    resolveSecond?.({
+      active_sessions: {
+        'media_player.living_room': {
+          current_time: 200,
+          entity_id: 'media_player.living_room',
+          episode_id: null,
+          item_id: 'new_book',
+          session_id: 'new_session',
+          speed: 1,
+        },
+      },
+      books: [
+        {
+          author: 'New Author',
+          cover_url: '',
+          duration: 1000,
+          id: 'new_book',
+          media_type: 'book',
+          progress: 200,
+          title: 'New Book',
+        },
+      ],
+      in_progress: [],
+      podcasts: [],
+    });
+    await secondFetch;
+
+    resolveFirst?.({
+      active_sessions: {
+        'media_player.living_room': {
+          current_time: 100,
+          entity_id: 'media_player.living_room',
+          episode_id: null,
+          item_id: 'old_book',
+          session_id: 'old_session',
+          speed: 1,
+        },
+      },
+      books: [
+        {
+          author: 'Old Author',
+          cover_url: '',
+          duration: 1000,
+          id: 'old_book',
+          media_type: 'book',
+          progress: 100,
+          title: 'Old Book',
+        },
+      ],
+      in_progress: [],
+      podcasts: [],
+    });
+    await firstFetch;
+
+    expect(customLibrary.books[0]?.id).toBe('new_book');
+    expect(onRestoreItem).toHaveBeenCalledTimes(1);
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'new_book' }),
+      200,
+      1000,
+      true,
+      1,
+    );
+    expect(customLibrary.isRefreshing).toBe(false);
+  });
+
   it('fetches podcast episodes and caches them', async (): Promise<void> => {
     const mockEpisodes: PodcastEpisode[] = [
       {
@@ -349,6 +416,86 @@ describe('LibraryController', (): void => {
       true,
       1.25,
     );
+  });
+
+  it('restores browser active session by empty string browser player id', (): void => {
+    const onRestoreItem = vi.fn();
+    const customHass: HomeAssistant = {
+      ...mockHass,
+      states: {},
+    } as HomeAssistant;
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => ({
+        player_entities: [''],
+        type: 'custom:abstp-player-card',
+      }),
+      getHass: (): HomeAssistant => customHass,
+      getSelectedPlayer: (): string => '',
+      onRestoreItem,
+    });
+    customLibrary.books = [
+      {
+        author: 'Author',
+        cover_url: '',
+        duration: 3600,
+        id: 'browser_book',
+        media_type: 'book',
+        progress: 0,
+        title: 'Browser Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({
+      browser: {
+        current_time: 900,
+        entity_id: 'browser',
+        episode_id: null,
+        item_id: 'browser_book',
+        session_id: 'session_browser',
+        speed: 1.5,
+      },
+    });
+
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'browser_book' }),
+      900,
+      3600,
+      true,
+      1.5,
+    );
+  });
+
+  it('does not select a default item when the player reports an unknown item', (): void => {
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.living_room': {
+        attributes: { item_id: 'unknown_book' },
+        entity_id: 'media_player.living_room',
+        state: 'playing',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): null => null,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.living_room',
+      onRestoreItem,
+    });
+    customLibrary.books = [
+      {
+        author: 'Fallback Author',
+        cover_url: '',
+        duration: 3600,
+        id: 'fallback_book',
+        media_type: 'book',
+        progress: 0,
+        title: 'Fallback Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).not.toHaveBeenCalled();
   });
 
   it('preserves existing current item when active session is absent', (): void => {

@@ -5,12 +5,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from homeassistant.const import (
+    ATTR_ENTITY_ID,
     STATE_IDLE,
     STATE_OFF,
     STATE_PAUSED,
+    STATE_PLAYING,
     STATE_STANDBY,
     STATE_UNAVAILABLE,
 )
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
 if TYPE_CHECKING:
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
     from .api import AbstpApiClient
 
 from .api import AbstpApiError
-from .const import LOGGER
+from .const import DOMAIN, LOGGER, SESSION_STARTUP_TIMEOUT, SOURCE_BROWSER_ID
 
 TERMINAL_PLAYER_STATES = {
     STATE_IDLE,
@@ -44,6 +48,7 @@ class ActiveSession:
     initial_position: float
     start_time: float
     has_played: bool = False
+    awaiting_initial_stop: bool = False
 
 
 class SessionTracker:
@@ -89,6 +94,11 @@ class SessionTracker:
         """Register a new active stream session and attach a state observer."""
         self._cleanup_listener(entity_id)
 
+        target_state = self.hass.states.get(entity_id)
+        already_playing = (
+            target_state is not None and target_state.state == STATE_PLAYING
+        )
+
         self._sessions[entity_id] = ActiveSession(
             entity_id=entity_id,
             session_id=session_id,
@@ -98,6 +108,7 @@ class SessionTracker:
             initial_position=initial_position,
             start_time=time.monotonic(),
             has_played=False,
+            awaiting_initial_stop=already_playing,
         )
 
         unsub = async_track_state_change_event(
@@ -125,11 +136,16 @@ class SessionTracker:
             return
 
         state = new_state.state
-        if state == "playing":
+        if sess.awaiting_initial_stop:
+            if state == STATE_PLAYING:
+                return
+            sess.awaiting_initial_stop = False
+
+        if state == STATE_PLAYING:
             sess.has_played = True
             return
 
-        grace_expired = (time.monotonic() - sess.start_time) > 10.0
+        grace_expired = (time.monotonic() - sess.start_time) > SESSION_STARTUP_TIMEOUT
         if (sess.has_played or grace_expired) and state in TERMINAL_PLAYER_STATES:
             LOGGER.debug(
                 "Player %s entered state %s, stopping abstp session %s",
@@ -137,6 +153,20 @@ class SessionTracker:
                 state,
                 sess.session_id,
             )
+            if state == STATE_PAUSED and entity_id != SOURCE_BROWSER_ID:
+                try:
+                    _ = await self.hass.services.async_call(
+                        "media_player",
+                        "media_stop",
+                        {ATTR_ENTITY_ID: entity_id},
+                        blocking=False,
+                    )
+                except HomeAssistantError as err:
+                    LOGGER.warning(
+                        "Failed to send media_stop to %s on pause: %s",
+                        entity_id,
+                        err,
+                    )
             _ = await self.async_stop_session_for_entity(entity_id)
 
     async def async_stop_session_for_entity(self, entity_id: str) -> bool:
@@ -146,6 +176,8 @@ class SessionTracker:
 
         if session is None:
             return False
+
+        async_dispatcher_send(self.hass, f"{DOMAIN}_session_stopped_{entity_id}")
 
         try:
             return await self._client.async_stop_session(session.session_id)

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from .coordinator import AbstpDataUpdateCoordinator
 
-from .const import DOMAIN
+from .const import DEFAULT_NAME, DOMAIN
 
 
 async def async_setup_entry(
@@ -51,7 +51,7 @@ class AbstpRefreshLibraryButton(ButtonEntity):
         self._attr_unique_id = f"{entry.entry_id}_refresh_library"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Audiobookshelf Transcoder Proxy",
+            name=DEFAULT_NAME,
             manufacturer="underhax",
             model="abstp",
             configuration_url=coordinator.client.base_url,

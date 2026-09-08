@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, cast
 
 import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
@@ -21,6 +23,7 @@ from .const import (
     ATTR_ITEM_ID,
     ATTR_SESSION_ID,
     ATTR_SPEED,
+    ATTR_TARGET_PLAYER,
     CONF_DEFAULT_SPEED,
     DEFAULT_SPEED,
     DOMAIN,
@@ -31,6 +34,7 @@ from .const import (
     SERVICE_REFRESH_LIBRARY,
     SERVICE_SET_SPEED,
     SERVICE_STOP,
+    SOURCE_BROWSER_ID,
 )
 
 
@@ -246,6 +250,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         episode_id = cast("str | None", call_data.get(ATTR_EPISODE_ID))
         current_time_obj = call_data.get(ATTR_CURRENT_TIME, 0.0)
         current_time = float(str(current_time_obj))
+        LOGGER.debug(
+            "Play request: context=%s targets=%s item=%s episode=%s position=%s",
+            call.context.id,
+            entity_ids,
+            item_id,
+            episode_id,
+            current_time,
+        )
 
         fallback_speed = DEFAULT_SPEED
         if coordinator.config_entry is not None:
@@ -261,9 +273,49 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         speed = float(str(speed_obj))
 
         for entity_id in entity_ids:
-            if tracker.get_active_session(entity_id):
-                _ = await tracker.async_stop_session_for_entity(entity_id)
+            state = hass.states.get(entity_id)
+            target_id = entity_id
+            if state and ATTR_TARGET_PLAYER in state.attributes:
+                raw_target = cast("object", state.attributes[ATTR_TARGET_PLAYER])
+                if isinstance(raw_target, str) and raw_target:
+                    target_id = raw_target
 
+            active_session = tracker.get_active_session(target_id)
+            if active_session:
+                LOGGER.debug(
+                    "Stopping existing: context=%s target=%s session=%s",
+                    call.context.id,
+                    target_id,
+                    active_session.session_id,
+                )
+                if target_id != SOURCE_BROWSER_ID:
+                    try:
+                        _ = await hass.services.async_call(
+                            "media_player",
+                            "media_stop",
+                            {ATTR_ENTITY_ID: target_id},
+                            blocking=False,
+                        )
+                    except HomeAssistantError as err:
+                        LOGGER.warning(
+                            "Failed to stop target %s before new play: %s",
+                            target_id,
+                            err,
+                        )
+                _ = await tracker.async_stop_session_for_entity(target_id)
+                LOGGER.debug(
+                    "Existing session stopped before play: context=%s target=%s",
+                    call.context.id,
+                    target_id,
+                )
+
+            LOGGER.debug(
+                "Starting proxy session: context=%s target=%s item=%s position=%s",
+                call.context.id,
+                target_id,
+                item_id,
+                current_time,
+            )
             session = await coordinator.client.async_start_session(
                 item_id=item_id,
                 episode_id=episode_id,
@@ -272,7 +324,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
 
             tracker.register_session(
-                entity_id=entity_id,
+                entity_id=target_id,
                 session_id=session.session_id,
                 item_id=item_id,
                 episode_id=episode_id,
@@ -283,7 +335,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             service_data = build_play_media_service_data(
                 hass=hass,
                 coordinator=coordinator,
-                entity_id=entity_id,
+                entity_id=target_id,
                 stream_url=session.stream_url,
                 item_id=item_id,
                 episode_id=episode_id,
@@ -294,6 +346,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 "play_media",
                 service_data,
                 blocking=False,
+            )
+            LOGGER.debug(
+                "Playback media play dispatched: context=%s target=%s session=%s",
+                call.context.id,
+                target_id,
+                session.session_id,
             )
 
         await coordinator.async_request_refresh()
@@ -308,14 +366,40 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         call_data = cast("dict[str, object]", call.data)
         entity_ids = cast("list[str] | None", call_data.get("entity_id"))
         session_id = cast("str | None", call_data.get(ATTR_SESSION_ID))
+        LOGGER.debug(
+            "Playback stop request: context=%s entities=%s session=%s",
+            call.context.id,
+            entity_ids,
+            session_id,
+        )
 
         if entity_ids:
             for entity_id in entity_ids:
-                _ = await tracker.async_stop_session_for_entity(entity_id)
                 state = hass.states.get(entity_id)
+                target_id = entity_id
+                if state and ATTR_TARGET_PLAYER in state.attributes:
+                    raw_target = cast("object", state.attributes[ATTR_TARGET_PLAYER])
+                    if isinstance(raw_target, str) and raw_target:
+                        target_id = raw_target
+
+                active_session = tracker.get_active_session(target_id)
+                LOGGER.debug(
+                    "Stopping target: context=%s entity=%s target=%s session=%s",
+                    call.context.id,
+                    entity_id,
+                    target_id,
+                    active_session.session_id if active_session else None,
+                )
+                _ = await tracker.async_stop_session_for_entity(target_id)
+                LOGGER.debug(
+                    "Proxy session stop completed: context=%s target=%s",
+                    call.context.id,
+                    target_id,
+                )
+                target_state = hass.states.get(target_id)
                 features = (
-                    cast("int", state.attributes.get("supported_features", 0))
-                    if state
+                    cast("int", target_state.attributes.get("supported_features", 0))
+                    if target_state
                     else MediaPlayerEntityFeature.STOP
                 )
                 service = (
@@ -331,8 +415,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     _ = await hass.services.async_call(
                         "media_player",
                         service,
-                        {"entity_id": entity_id},
+                        {"entity_id": target_id},
                         blocking=False,
+                    )
+                    LOGGER.debug(
+                        "Physical stop: context=%s target=%s service=%s blocking=%s",
+                        call.context.id,
+                        target_id,
+                        service,
+                        False,
                     )
 
         if session_id:

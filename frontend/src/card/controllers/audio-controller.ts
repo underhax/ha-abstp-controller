@@ -33,6 +33,8 @@ export class AudioController implements ReactiveController {
   public speedHoldTimer: number | null = null;
   public speedHoldInterval: number | null = null;
 
+  private playbackSpeedDirty: boolean = false;
+
   public constructor(host: ReactiveControllerHost, options: AudioControllerOptions) {
     this.host = host;
     this.options = options;
@@ -53,10 +55,12 @@ export class AudioController implements ReactiveController {
     this.browserVolume = browserVolume;
     this.browserMuted = browserMuted;
     this.currentSpeed = loadSelectedSpeed(config);
+    this.playbackSpeedDirty = false;
   }
 
   public adjustSpeed(newSpeed: number): void {
     this.currentSpeed = calculateNextSpeed(newSpeed, 0);
+    this.playbackSpeedDirty = true;
     const config: AbstpCardConfig | undefined = this.options.getConfig();
     setStorageItem(getCardStorageKey('selected_speed', config), String(this.currentSpeed));
     this.host.requestUpdate();
@@ -135,6 +139,20 @@ export class AudioController implements ReactiveController {
     }
     if (isMuted !== undefined) {
       this.isMuted = isMuted;
+    }
+    this.host.requestUpdate();
+  }
+
+  public resetPlaybackSpeed(): void {
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    this.currentSpeed = config?.default_speed ?? DEFAULT_PLAYBACK_SPEED;
+    this.playbackSpeedDirty = false;
+    this.host.requestUpdate();
+  }
+
+  public syncPlaybackSpeed(playbackSpeed?: number): void {
+    if (!this.playbackSpeedDirty && playbackSpeed !== undefined && playbackSpeed > 0) {
+      this.currentSpeed = playbackSpeed;
     }
     this.host.requestUpdate();
   }

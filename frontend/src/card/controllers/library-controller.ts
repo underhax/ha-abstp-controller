@@ -8,7 +8,7 @@ import type {
   MediaItem,
   PodcastEpisode,
 } from '../../types.ts';
-import { fetchChapters, fetchEpisodes, fetchLibrary } from '../api.ts';
+import { fetchChapters, fetchEpisodes, fetchLibrary, type LibraryResponse } from '../api.ts';
 import {
   filterBooks,
   filterInProgress,
@@ -20,11 +20,12 @@ import {
   resolveInitialPosition,
   resolveItemIds,
 } from '../media.ts';
-import { getCardStorageKey, getStorageItem, setStorageItem } from '../storage.ts';
+import { filterAvailablePlayers } from '../templates/device-picker.ts';
 
 export interface LibraryControllerOptions {
   getConfig: () => AbstpCardConfig | undefined;
   getHass: () => HomeAssistant | undefined;
+  getPlayerOrder?: () => string[];
   getCurrentItem?: () => MediaItem | PodcastEpisode | InProgressItem | null;
   getSelectedPlayer?: () => string;
   getIsPlaying?: () => boolean;
@@ -58,6 +59,8 @@ export class LibraryController implements ReactiveController {
   public libraryLoaded: boolean = false;
   public userSelectedTab: boolean = false;
 
+  private libraryFetchGeneration: number = 0;
+
   public constructor(host: ReactiveControllerHost, options: LibraryControllerOptions) {
     this.host = host;
     this.options = options;
@@ -73,32 +76,45 @@ export class LibraryController implements ReactiveController {
     if (!hass) {
       return;
     }
+    const fetchGeneration: number = ++this.libraryFetchGeneration;
     this.isRefreshing = true;
     this.host.requestUpdate();
     try {
       const response = await fetchLibrary(hass);
-      this.books = response.books;
-      this.podcasts = response.podcasts;
-      this.inProgress = response.in_progress ?? [];
-      const config: AbstpCardConfig | undefined = this.options.getConfig();
-      if (!this.userSelectedTab) {
-        if (this.inProgress.length > 0) {
-          this.activeTab = 'in_progress';
-        } else if (!config?.hide_books) {
-          this.activeTab = 'books';
-        } else if (!config?.hide_podcasts) {
-          this.activeTab = 'podcasts';
-        }
+      if (fetchGeneration !== this.libraryFetchGeneration) {
+        return;
       }
-      this.restoreActiveOrSavedItem(response.active_sessions ?? {});
+      this.applyLibraryResponse(response);
     } catch {
+      if (fetchGeneration !== this.libraryFetchGeneration) {
+        return;
+      }
       this.books = [];
       this.podcasts = [];
       this.inProgress = [];
     } finally {
-      this.isRefreshing = false;
-      this.host.requestUpdate();
+      if (fetchGeneration === this.libraryFetchGeneration) {
+        this.isRefreshing = false;
+        this.host.requestUpdate();
+      }
     }
+  }
+
+  private applyLibraryResponse(response: LibraryResponse): void {
+    this.books = response.books;
+    this.podcasts = response.podcasts;
+    this.inProgress = response.in_progress ?? [];
+    const config: AbstpCardConfig | undefined = this.options.getConfig();
+    if (!this.userSelectedTab) {
+      if (this.inProgress.length > 0) {
+        this.activeTab = 'in_progress';
+      } else if (!config?.hide_books) {
+        this.activeTab = 'books';
+      } else if (!config?.hide_podcasts) {
+        this.activeTab = 'podcasts';
+      }
+    }
+    this.restoreActiveOrSavedItem(response.active_sessions ?? {});
   }
 
   public async fetchEpisodes(podcastId: string): Promise<void> {
@@ -205,41 +221,59 @@ export class LibraryController implements ReactiveController {
     this.restoreFromSavedOrDefault();
   }
 
+  private static getSessionId(playerId: string): string {
+    return playerId === '' ? 'browser' : playerId;
+  }
+
+  private static findAllowedPlayerSession(
+    activeSessions: Record<string, ActiveSessionInfo>,
+    allowedPlayers: string[],
+  ): [string, ActiveSessionInfo] | undefined {
+    for (const playerId of allowedPlayers) {
+      const session: ActiveSessionInfo | undefined =
+        activeSessions[LibraryController.getSessionId(playerId)];
+      if (session) {
+        return [playerId, session];
+      }
+    }
+    return undefined;
+  }
+
   private resolveActiveSession(
     activeSessions: Record<string, ActiveSessionInfo>,
   ): ActiveSessionInfo | undefined {
     const selectedPlayer: string = this.options.getSelectedPlayer?.() ?? '';
-    if (selectedPlayer && activeSessions[selectedPlayer]) {
-      return activeSessions[selectedPlayer];
+    const selectedSession: ActiveSessionInfo | undefined =
+      activeSessions[LibraryController.getSessionId(selectedPlayer)];
+    if (selectedSession) {
+      return selectedSession;
     }
+
     const config: AbstpCardConfig | undefined = this.options.getConfig();
-    if (config?.player_entity && activeSessions[config.player_entity]) {
-      this.options.onSelectedPlayerChange?.(config.player_entity);
-      return activeSessions[config.player_entity];
+    const allowedPlayers: string[] = filterAvailablePlayers(
+      this.options.getHass(),
+      config,
+      this.options.getPlayerOrder?.(),
+    );
+    const allowedSession: [string, ActiveSessionInfo] | undefined =
+      LibraryController.findAllowedPlayerSession(activeSessions, allowedPlayers);
+    if (allowedSession) {
+      this.options.onSelectedPlayerChange?.(allowedSession[0]);
+      return allowedSession[1];
     }
-    const allowedPlayers: string[] | undefined = config?.player_entities;
-    if (allowedPlayers && allowedPlayers.length > 0) {
-      const match: string | undefined = allowedPlayers.find((id: string): boolean =>
-        Boolean(activeSessions[id]),
-      );
-      if (match) {
-        this.options.onSelectedPlayerChange?.(match);
-        return activeSessions[match];
-      }
+    if (allowedPlayers.length > 0) {
       return undefined;
     }
-    if (config?.player_entity) {
+
+    const firstActiveId: string | undefined = Object.keys(activeSessions)[0];
+    const firstSession: ActiveSessionInfo | undefined =
+      firstActiveId === undefined ? undefined : activeSessions[firstActiveId];
+    if (firstActiveId === undefined || !firstSession) {
       return undefined;
     }
-    const activeEntityIds: string[] = Object.keys(activeSessions);
-    if (activeEntityIds.length > 0) {
-      const firstActiveId: string | undefined = activeEntityIds[0];
-      if (firstActiveId !== undefined && activeSessions[firstActiveId]) {
-        this.options.onSelectedPlayerChange?.(firstActiveId);
-        return activeSessions[firstActiveId];
-      }
-    }
-    return undefined;
+    const selectedId: string = firstActiveId === 'browser' ? '' : firstActiveId;
+    this.options.onSelectedPlayerChange?.(selectedId);
+    return firstSession;
   }
 
   private restoreFromActiveSession(activeSessions: Record<string, ActiveSessionInfo>): boolean {
@@ -253,8 +287,6 @@ export class LibraryController implements ReactiveController {
     if (!matchedItem) {
       return false;
     }
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    setStorageItem(getCardStorageKey('last_item_id', config), matchedItem.id);
     this.options.onRestoreItem?.(
       matchedItem,
       activeSession.current_time,
@@ -272,17 +304,33 @@ export class LibraryController implements ReactiveController {
   }
 
   private restoreFromSavedOrDefault(): void {
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    const lastItemId: string | null = getStorageItem(getCardStorageKey('last_item_id', config));
-    const savedItem: MediaItem | InProgressItem | undefined = lastItemId
-      ? this.findSavedItem(lastItemId)
+    const hass: HomeAssistant | undefined = this.options.getHass();
+    const selectedPlayer: string = this.options.getSelectedPlayer?.() ?? '';
+    const playerEntity = selectedPlayer !== '' ? hass?.states?.[selectedPlayer] : undefined;
+    const restoredItemId: string | undefined = playerEntity?.attributes.item_id as
+      | string
+      | undefined;
+    const savedItem: MediaItem | InProgressItem | undefined = restoredItemId
+      ? this.findSavedItem(restoredItemId)
       : undefined;
+    if (restoredItemId && !savedItem) {
+      return;
+    }
     const targetItem: MediaItem | InProgressItem | undefined =
       savedItem ?? this.inProgress[0] ?? this.books[0];
     if (!targetItem) {
       return;
     }
-    const pos: number = resolveInitialPosition(targetItem);
+    const restoredPos: number | undefined =
+      typeof playerEntity?.attributes.current_time === 'number'
+        ? (playerEntity.attributes.current_time as number)
+        : typeof playerEntity?.attributes.media_position === 'number'
+          ? (playerEntity.attributes.media_position as number)
+          : undefined;
+    const pos: number =
+      savedItem && restoredPos !== undefined && restoredPos >= 0
+        ? restoredPos
+        : resolveInitialPosition(targetItem);
     this.options.onRestoreItem?.(targetItem, pos, targetItem.duration || 0, false);
     if (isPodcastItem(targetItem)) {
       this.clearChapters();

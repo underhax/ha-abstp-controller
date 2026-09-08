@@ -62,13 +62,12 @@ export interface ActiveSessionInfo {
 }
 
 export interface AbstpCardConfig {
+  card_id?: string;
   default_speed?: number;
   hide_books?: boolean;
   hide_podcasts?: boolean;
   player_entities?: string[];
-  player_entity?: string;
   skip_seconds?: number;
-  title?: string;
   type: 'custom:abstp-player-card';
 }
 
@@ -80,11 +79,24 @@ export interface HassEntity {
     media_duration?: number;
     media_position?: number;
     media_title?: string;
+    playback_speed?: number;
     volume_level?: number;
+    current_time?: number;
+    episode_id?: string | null;
+    item_id?: string;
+    target_available?: boolean;
+    target_player?: string;
     [key: string]: unknown;
   };
   entity_id: string;
   state: string;
+}
+
+export interface HomeAssistantConnection {
+  subscribeMessage: <T>(
+    callback: (message: T) => void,
+    message: Record<string, unknown>,
+  ) => Promise<() => void>;
 }
 
 export interface HomeAssistant {
@@ -94,6 +106,7 @@ export interface HomeAssistant {
     serviceData?: Record<string, unknown>,
   ) => Promise<unknown>;
   callWS: <T>(message: Record<string, unknown>) => Promise<T>;
+  connection?: HomeAssistantConnection;
   language: string;
   states: Record<string, HassEntity>;
 }

@@ -4,37 +4,12 @@ import type { BrowserAudioPlayer } from '../src/audio-player.ts';
 import { AudioController } from '../src/card/controllers/audio-controller.ts';
 import type { AbstpCardConfig, HomeAssistant } from '../src/types.ts';
 
-interface StorageMock {
-  clear: () => void;
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-}
-
-const storageMock: StorageMock = ((): StorageMock => {
-  let store: Record<string, string> = {};
-  return {
-    clear: (): void => {
-      store = {};
-    },
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-  };
-})();
-
-Object.defineProperty(window, 'localStorage', {
-  value: storageMock,
-  writable: true,
-});
-
 describe('AudioController', (): void => {
   let host: ReactiveControllerHost;
   let mockConfig: AbstpCardConfig;
   let audio: AudioController;
 
   beforeEach((): void => {
-    storageMock.clear();
     host = {
       addController: vi.fn(),
       removeController: vi.fn(),
@@ -50,19 +25,17 @@ describe('AudioController', (): void => {
     });
   });
 
-  it('initializes with default speed and volume from config and local storage', (): void => {
-    storageMock.setItem('abstp_default_browser_volume', '0.6');
+  it('initializes with default speed and volume from configuration', (): void => {
     audio.initSettings();
 
     expect(audio.currentSpeed).toBe(1.25);
-    expect(audio.browserVolume).toBe(0.6);
+    expect(audio.browserVolume).toBe(1.0);
   });
 
-  it('adjusts speed within boundaries and updates selected_speed in storage', (): void => {
+  it('adjusts speed within boundaries', (): void => {
     audio.adjustSpeed(1.5);
 
     expect(audio.currentSpeed).toBe(1.5);
-    expect(storageMock.getItem('abstp_default_selected_speed')).toBe('1.5');
     expect(host.requestUpdate).toHaveBeenCalled();
 
     audio.adjustSpeed(5.0);
@@ -90,7 +63,7 @@ describe('AudioController', (): void => {
     vi.useRealTimers();
   });
 
-  it('sets browser volume and persists volume in local storage', async (): Promise<void> => {
+  it('sets browser volume on audio player instance', async (): Promise<void> => {
     const mockPlayer = {
       setVolume: vi.fn(),
     } as unknown as BrowserAudioPlayer;
@@ -100,7 +73,6 @@ describe('AudioController', (): void => {
     expect(audio.volumeLevel).toBe(0.8);
     expect(audio.browserVolume).toBe(0.8);
     expect(mockPlayer.setVolume).toHaveBeenCalledWith(0.8);
-    expect(storageMock.getItem('abstp_default_browser_volume')).toBe('0.8');
   });
 
   it('sets speaker volume via Home Assistant callService', async (): Promise<void> => {
@@ -158,15 +130,21 @@ describe('AudioController', (): void => {
     expect(host.requestUpdate).toHaveBeenCalled();
   });
 
-  it('synchronizes browser volume to player instance', (): void => {
+  it('synchronizes playback speed from virtual player attributes', (): void => {
+    audio.syncPlaybackSpeed(1.75);
+
+    expect(audio.currentSpeed).toBe(1.75);
+  });
+
+  it('synchronizes browser volume attributes to player instance', (): void => {
     const mockPlayer = {
       setVolume: vi.fn(),
     } as unknown as BrowserAudioPlayer;
 
     audio.browserVolume = 0.7;
-    audio.browserMuted = false;
     audio.syncBrowserVolume(mockPlayer);
 
+    expect(audio.browserVolume).toBe(0.7);
     expect(audio.volumeLevel).toBe(0.7);
     expect(audio.isMuted).toBe(false);
     expect(mockPlayer.setVolume).toHaveBeenCalledWith(0.7);

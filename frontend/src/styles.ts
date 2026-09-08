@@ -29,6 +29,39 @@ export const cardStyles: CSSResult = css`
     container-name: abstp-card;
   }
 
+  ha-card.unavailable {
+    background: var(--state-media_player-unavailable-color, #727272);
+    padding: 16px;
+    gap: 0;
+  }
+
+  ha-card.unavailable .card-brand-icon {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  ha-card.unavailable .player-hero {
+    gap: 0;
+  }
+
+  ha-card.unavailable .device-picker-row {
+    margin-bottom: 0;
+  }
+
+  ha-card.unavailable .device-menu-popover {
+    background: var(--card-background-color, #242424);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  ha-card.unavailable .device-menu-item:hover:not(.disabled) {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  ha-card.unavailable .device-menu-item.active,
+  ha-card.unavailable .device-menu-item.active:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
   .card-brand-icon {
     position: absolute;
     top: 16px;
@@ -102,6 +135,10 @@ export const cardStyles: CSSResult = css`
     margin-bottom: 5px;
   }
 
+  .device-picker-row-pending {
+    min-height: 24px;
+  }
+
   .device-badge {
     display: inline-flex;
     align-items: center;
@@ -111,7 +148,7 @@ export const cardStyles: CSSResult = css`
     border: none;
     color: #ffffff;
     font-size: 1rem;
-    font-weight: 500;
+    font-weight: 400;
     cursor: default;
     user-select: none;
     transition: opacity 0.15s ease;
@@ -137,6 +174,11 @@ export const cardStyles: CSSResult = css`
     opacity: 0.75;
     margin-left: 1px;
     flex-shrink: 0;
+  }
+
+  .device-badge .icon {
+    width: 24px;
+    height: 24px;
   }
 
   .device-menu-popover {

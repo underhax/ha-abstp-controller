@@ -74,12 +74,23 @@ async def test_async_remove_entry(hass: HomeAssistant) -> None:
     entry = MagicMock(spec=ConfigEntry)
     entry.entry_id = "test_entry_id"
 
-    with patch(
-        "custom_components.abstp_controller.async_unregister_resource",
-        new_callable=AsyncMock,
-    ) as mock_unregister:
+    preference_store = MagicMock()
+    preference_remove = AsyncMock()
+    preference_store.configure_mock(async_remove=preference_remove)
+    with (
+        patch(
+            "custom_components.abstp_controller.async_unregister_resource",
+            new_callable=AsyncMock,
+        ) as mock_unregister,
+        patch(
+            "custom_components.abstp_controller.async_get_card_preference_store",
+            return_value=preference_store,
+        ),
+    ):
         await async_remove_entry(hass, entry)
         mock_unregister.assert_called_once_with(hass)
+
+    preference_remove.assert_awaited_once_with()
 
 
 async def test_abstp_cover_view(hass: HomeAssistant) -> None:

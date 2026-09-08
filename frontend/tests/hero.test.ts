@@ -499,4 +499,49 @@ describe('renderHeroPlayer()', (): void => {
     expect(container.querySelector('.timeline-container')).not.toBeNull();
     expect(container.querySelector('.controls-bar')).not.toBeNull();
   });
+
+  it('renders collapsed hero with device picker only when target is unavailable', (): void => {
+    const context: HeroPlayerContext = {
+      currentChapter: mockChapter,
+      currentItem: mockBook,
+      currentSpeed: 1,
+      devicePicker: html`<div class="mock-device-picker">Device Badge</div>`,
+      hasNoChapters: false,
+      isBuffering: false,
+      isMuted: false,
+      isPlaying: false,
+      isTargetUnavailable: true,
+      lang: 'en',
+      onSeekChange: vi.fn(),
+      onSeekInput: vi.fn(),
+      onSkip: vi.fn(),
+      onSpeedAdjust: vi.fn(),
+      onStartSpeedHold: vi.fn(),
+      onStopSpeedHold: vi.fn(),
+      onToggleChapters: vi.fn(),
+      onToggleLibrary: vi.fn(),
+      onToggleMute: vi.fn(),
+      onTogglePlayPause: vi.fn(),
+      onToggleSpeedPopover: vi.fn(),
+      onToggleVolumePopover: vi.fn(),
+      onVolumeChange: vi.fn(),
+      playbackDuration: 3600,
+      playbackPosition: 300,
+      showChapters: false,
+      showLibrary: false,
+      showSpeedPopover: false,
+      showVolumePopover: false,
+      skipSec: 15,
+      volumeLevel: 1,
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderHeroPlayer(context), container);
+
+    expect(container.querySelector('.player-hero')).not.toBeNull();
+    expect(container.querySelector('.mock-device-picker')).not.toBeNull();
+    expect(container.querySelector('.now-playing-body')).toBeNull();
+    expect(container.querySelector('.timeline-container')).toBeNull();
+    expect(container.querySelector('.controls-bar')).toBeNull();
+  });
 });

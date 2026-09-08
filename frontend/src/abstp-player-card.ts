@@ -1,6 +1,11 @@
 import { customElement, property, state } from 'lit/decorators.js';
 import { type CSSResult, LitElement } from 'lit-element/lit-element.js';
 import { html, type TemplateResult } from 'lit-html';
+import {
+  type CardPreferenceEvent,
+  setCardPreference,
+  subscribeCardPreference,
+} from './card/api.ts';
 import { DEFAULT_PLAYBACK_SPEED, DEFAULT_SKIP_SECONDS } from './card/constants.ts';
 import { AudioController } from './card/controllers/audio-controller.ts';
 import { LibraryController } from './card/controllers/library-controller.ts';
@@ -17,6 +22,7 @@ import type {
   AbstpCardConfig,
   ChapterItem,
   HomeAssistant,
+  HomeAssistantConnection,
   InProgressItem,
   MediaItem,
   PodcastEpisode,
@@ -38,6 +44,13 @@ export class AbstpPlayerCard extends LitElement {
   private readonly _cardSize: number = 5;
   private _prevShowChapters: boolean = false;
   private _prevChaptersCount: number = 0;
+  private cardPreferenceUnsubscribe: (() => void) | null = null;
+  private cardPreferenceConnection: HomeAssistantConnection | undefined;
+  private cardPreferenceId: string = '';
+  private cardPlayerOrder: string[] = [];
+  private cardPreferenceSelectedPlayer: string | null = null;
+  private cardPreferenceReady: boolean = false;
+  private cardPreferenceRepairing: boolean = false;
 
   public constructor() {
     super();
@@ -50,6 +63,7 @@ export class AbstpPlayerCard extends LitElement {
       audio: this.audio,
       getConfig: (): AbstpCardConfig | undefined => this.config,
       getHass: (): HomeAssistant | undefined => this.hass,
+      getPlayerOrder: (): string[] => this.cardPlayerOrder,
       onChaptersRequired: (itemId: string): void => {
         if (this.library.chaptersBookId !== itemId) {
           this.library.clearChapters();
@@ -68,6 +82,7 @@ export class AbstpPlayerCard extends LitElement {
         this.playback.currentItem,
       getHass: (): HomeAssistant | undefined => this.hass,
       getIsPlaying: (): boolean => this.playback.isPlaying || this.playback.isBuffering,
+      getPlayerOrder: (): string[] => this.cardPlayerOrder,
       getSelectedPlayer: (): string => this.playback.selectedPlayer,
       onChaptersUnavailable: (): void => {
         this.ui.showChapters = false;
@@ -99,7 +114,7 @@ export class AbstpPlayerCard extends LitElement {
         }
       },
       onPageHide: (): void => {
-        if (this.playback.selectedPlayer === '') {
+        if (this.playback.isBrowserPlayer()) {
           void this.playback.stop();
         }
       },
@@ -112,6 +127,7 @@ export class AbstpPlayerCard extends LitElement {
 
   public static getStubConfig(): Record<string, unknown> {
     return {
+      card_id: crypto.randomUUID(),
       default_speed: DEFAULT_PLAYBACK_SPEED,
       skip_seconds: DEFAULT_SKIP_SECONDS,
       type: 'custom:abstp-player-card',
@@ -123,8 +139,12 @@ export class AbstpPlayerCard extends LitElement {
   }
 
   public setConfig(config: AbstpCardConfig): void {
+    const previousSelectedPlayer: string = this.playback.selectedPlayer;
     this.config = config;
     this.playback.initSettings();
+    if (previousSelectedPlayer) {
+      this.playback.selectedPlayer = previousSelectedPlayer;
+    }
   }
 
   protected override updated(changedProps: Map<string | number | symbol, unknown>): void {
@@ -143,14 +163,28 @@ export class AbstpPlayerCard extends LitElement {
         });
       });
     }
-    if (!changedProps.has('hass') || !this.hass) {
+    if (!this.hass) {
+      return;
+    }
+    if (changedProps.has('config')) {
+      void this.ensureCardPreferenceSubscription();
+      void this.reconcileCardPreference();
+    }
+    if (!changedProps.has('hass')) {
       return;
     }
     if (!this.library.libraryLoaded) {
       this.library.libraryLoaded = true;
-      void this.library.fetchLibrary();
+      if (!this.config?.card_id || !this.hass.connection) {
+        void this.library.fetchLibrary();
+      } else {
+        void this.initializeCardState();
+      }
+    } else {
+      void this.ensureCardPreferenceSubscription();
     }
     this.playback.syncPlayerState();
+    void this.reconcileCardPreference();
   }
 
   public scrollToActiveChapter(): void {
@@ -159,35 +193,208 @@ export class AbstpPlayerCard extends LitElement {
 
   protected override render(): TemplateResult {
     const lang: string = this.hass?.language ?? 'en';
-    const allowedPlayers: string[] = filterAvailablePlayers(this.hass, this.config);
+    const allowedPlayers: string[] = filterAvailablePlayers(
+      this.hass,
+      this.config,
+      this.cardPlayerOrder,
+    );
     const filteredInProgress: InProgressItem[] = this.library.getFilteredInProgress();
     const filteredBooks: MediaItem[] = this.library.getFilteredBooks();
     const filteredPodcasts: MediaItem[] = this.library.getFilteredPodcasts();
+    const playerEntity = this.playback.isBrowserPlayer()
+      ? undefined
+      : this.hass?.states[this.playback.selectedPlayer];
+    const isTargetUnavailable: boolean =
+      Boolean(this.hass) &&
+      !this.playback.isBrowserPlayer() &&
+      (!playerEntity ||
+        playerEntity.state === 'unavailable' ||
+        playerEntity.state === 'unknown' ||
+        playerEntity.attributes.target_available === false);
 
     return html`
-      <ha-card>
+      <ha-card class="${isTargetUnavailable ? 'unavailable' : ''}">
         <div class="card-brand-icon" aria-hidden="true">${audiobookshelfIcon}</div>
-        ${this.renderHeroPlayer(lang, allowedPlayers)}
+        ${this.renderHeroPlayer(lang, allowedPlayers, isTargetUnavailable)}
 
         ${
-          this.ui.showLibrary
-            ? this.renderLibrarySection(filteredInProgress, filteredBooks, filteredPodcasts, lang)
-            : this.ui.showChapters
-              ? this.renderChaptersSection(lang)
-              : html``
+          isTargetUnavailable
+            ? html``
+            : this.ui.showLibrary
+              ? this.renderLibrarySection(filteredInProgress, filteredBooks, filteredPodcasts, lang)
+              : this.ui.showChapters
+                ? this.renderChaptersSection(lang)
+                : html``
         }
       </ha-card>
     `;
   }
 
+  private async initializeCardState(): Promise<void> {
+    const libraryPromise: Promise<void> = this.library.fetchLibrary();
+    await this.ensureCardPreferenceSubscription();
+    await libraryPromise;
+  }
+
+  private async ensureCardPreferenceSubscription(): Promise<void> {
+    const hass: HomeAssistant | undefined = this.hass;
+    const connection: HomeAssistantConnection | undefined = hass?.connection;
+    const cardId: string | undefined = this.config?.card_id;
+    if (!hass || !connection || !cardId) {
+      return;
+    }
+    if (this.cardPreferenceConnection === connection && this.cardPreferenceId === cardId) {
+      return;
+    }
+    this.cardPreferenceUnsubscribe?.();
+    this.cardPreferenceUnsubscribe = null;
+    this.cardPreferenceConnection = connection;
+    this.cardPreferenceId = cardId;
+    this.cardPreferenceSelectedPlayer = null;
+    this.cardPreferenceReady = false;
+
+    try {
+      const unsubscribe: () => void = await subscribeCardPreference(
+        hass,
+        cardId,
+        (message: CardPreferenceEvent): void => this.handleCardPreferenceEvent(message),
+      );
+      if (this.hass?.connection !== connection || this.config?.card_id !== cardId) {
+        unsubscribe();
+        return;
+      }
+      this.cardPreferenceUnsubscribe = unsubscribe;
+    } catch {
+      this.cardPreferenceConnection = undefined;
+      this.cardPreferenceId = '';
+    }
+  }
+
+  private handleCardPreferenceEvent(message: CardPreferenceEvent): void {
+    const event = message;
+    if (event.card_id !== this.config?.card_id) {
+      return;
+    }
+
+    this.cardPreferenceReady = true;
+    this.cardPlayerOrder = event.available_players;
+    const allowedPlayers: string[] = this.getCardPreferencePlayers();
+    const availablePlayers: Set<string> = new Set(event.available_players);
+    const selectedPlayer: string | null = event.selected_player;
+    const isPlayerAvailable = (id: string): boolean =>
+      id === '' || !event.available_players_known || availablePlayers.has(id);
+    const selectedIsValid: boolean =
+      selectedPlayer !== null &&
+      allowedPlayers.includes(selectedPlayer) &&
+      isPlayerAvailable(selectedPlayer);
+    const nextPlayer: string = selectedIsValid
+      ? (selectedPlayer ?? '')
+      : (allowedPlayers.find(isPlayerAvailable) ?? '');
+    this.cardPreferenceSelectedPlayer = nextPlayer;
+    this.requestUpdate();
+    if (selectedPlayer !== null && !selectedIsValid && !this.cardPreferenceRepairing) {
+      this.cardPreferenceRepairing = true;
+      void this.saveCardPreference(nextPlayer).finally((): void => {
+        this.cardPreferenceRepairing = false;
+      });
+    }
+    if (this.playback.selectedPlayer !== nextPlayer) {
+      void this.playback.selectPlayer(nextPlayer).then((): void => {
+        void this.library.fetchLibrary();
+      });
+    }
+  }
+
+  private async reconcileCardPreference(): Promise<void> {
+    if (!this.cardPreferenceReady || this.cardPreferenceRepairing || !this.hass) {
+      return;
+    }
+    const allowedPlayers: string[] = this.getCardPreferencePlayers();
+    const availablePlayers: Set<string> = new Set(
+      Object.keys(this.hass.states).filter((id: string): boolean =>
+        id.startsWith('media_player.abstp_'),
+      ),
+    );
+    const isPlayerAvailable = (id: string): boolean => id === '' || availablePlayers.has(id);
+    const selectedPlayer: string = this.playback.selectedPlayer;
+    const preferredPlayer: string | null = this.cardPreferenceSelectedPlayer;
+    if (preferredPlayer !== null && allowedPlayers.includes(preferredPlayer)) {
+      if (selectedPlayer === preferredPlayer || !isPlayerAvailable(preferredPlayer)) {
+        return;
+      }
+      this.cardPreferenceRepairing = true;
+      try {
+        await this.playback.selectPlayer(preferredPlayer);
+      } finally {
+        this.cardPreferenceRepairing = false;
+      }
+      return;
+    }
+    const selectedIsValid: boolean =
+      allowedPlayers.includes(selectedPlayer) && isPlayerAvailable(selectedPlayer);
+    if (selectedIsValid) {
+      return;
+    }
+    const nextPlayer: string = allowedPlayers.find(isPlayerAvailable) ?? '';
+    if (selectedPlayer === nextPlayer) {
+      return;
+    }
+    this.cardPreferenceRepairing = true;
+    try {
+      this.cardPreferenceSelectedPlayer = nextPlayer;
+      await this.playback.selectPlayer(nextPlayer);
+      await this.saveCardPreference(nextPlayer);
+    } finally {
+      this.cardPreferenceRepairing = false;
+    }
+  }
+
+  private getCardPreferencePlayers(): string[] {
+    return filterAvailablePlayers(this.hass, this.config, this.cardPlayerOrder);
+  }
+
+  private async selectPlayerAndSave(playerId: string): Promise<void> {
+    this.cardPreferenceSelectedPlayer = playerId;
+    await this.playback.selectPlayer(playerId);
+    await this.saveCardPreference(playerId);
+  }
+
+  private async saveCardPreference(selectedPlayer: string | null): Promise<void> {
+    const hass: HomeAssistant | undefined = this.hass;
+    const cardId: string | undefined = this.config?.card_id;
+    if (!hass || !cardId) {
+      return;
+    }
+    try {
+      await setCardPreference(hass, cardId, selectedPlayer);
+    } catch {
+      return;
+    }
+  }
+
+  public override disconnectedCallback(): void {
+    this.cardPreferenceUnsubscribe?.();
+    this.cardPreferenceUnsubscribe = null;
+    this.cardPreferenceConnection = undefined;
+    this.cardPreferenceId = '';
+    this.cardPlayerOrder = [];
+    this.cardPreferenceSelectedPlayer = null;
+    this.cardPreferenceReady = false;
+    super.disconnectedCallback();
+  }
+
   private renderDevicePicker(lang: string, allowedPlayers: string[]): TemplateResult {
+    if (this.config?.card_id && this.hass?.connection && !this.cardPreferenceReady) {
+      return html`<div class="device-picker-row device-picker-row-pending" aria-hidden="true"></div>`;
+    }
     return renderDevicePicker({
       allowedPlayers,
       config: this.config,
       hass: this.hass,
       lang,
       onSelectPlayer: (id: string): void => {
-        void this.playback.selectPlayer(id);
+        this.ui.showDeviceMenu = false;
+        void this.selectPlayerAndSave(id);
       },
       onToggleDeviceMenu: (): void => this.ui.toggleDeviceMenu(),
       selectedPlayer: this.playback.selectedPlayer,
@@ -195,7 +402,11 @@ export class AbstpPlayerCard extends LitElement {
     });
   }
 
-  private renderHeroPlayer(lang: string, allowedPlayers: string[]): TemplateResult {
+  private renderHeroPlayer(
+    lang: string,
+    allowedPlayers: string[],
+    isTargetUnavailable: boolean,
+  ): TemplateResult {
     return renderHeroPlayer({
       currentChapter: this.library.getCurrentChapter(
         this.playback.playbackPosition,
@@ -208,6 +419,7 @@ export class AbstpPlayerCard extends LitElement {
       isBuffering: this.playback.isBuffering,
       isMuted: this.audio.isMuted,
       isPlaying: this.playback.isPlaying,
+      isTargetUnavailable,
       lang,
       onSeekChange: (targetPos: number): Promise<void> => this.playback.seek(targetPos),
       onSeekInput: (targetPos: number): void => {

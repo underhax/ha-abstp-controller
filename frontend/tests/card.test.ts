@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AbstpPlayerCard } from '../src/abstp-player-card.ts';
 import { AbstpPlayerCardEditor } from '../src/abstp-player-card-editor.ts';
-import type { AbstpCardConfig, HomeAssistant } from '../src/types.ts';
+import type { CardPreferenceEvent } from '../src/card/api.ts';
+import type { AbstpCardConfig, HomeAssistant, HomeAssistantConnection } from '../src/types.ts';
 
 describe('AbstpPlayerCard', (): void => {
   it('creates stub configuration with default values', (): void => {
     const stub = AbstpPlayerCard.getStubConfig() as unknown as AbstpCardConfig;
     expect(stub.type).toBe('custom:abstp-player-card');
+    expect(stub.card_id).toMatch(/^[0-9a-f-]{36}$/u);
     expect(stub.default_speed).toBe(1.0);
     expect(stub.skip_seconds).toBe(10);
   });
@@ -15,13 +17,145 @@ describe('AbstpPlayerCard', (): void => {
     const card: AbstpPlayerCard = new AbstpPlayerCard();
     card.setConfig({
       default_speed: 1.5,
-      player_entity: 'media_player.living_room_speaker',
+      player_entities: ['media_player.living_room_speaker'],
       skip_seconds: 15,
-      title: 'Custom Title',
       type: 'custom:abstp-player-card',
     });
     expect(card).toBeDefined();
     expect(card.getCardSize()).toBe(5);
+  });
+
+  it('reuses preference subscription for a stable WebSocket connection', async (): Promise<void> => {
+    const unsubscribe = vi.fn();
+    const subscribeMessage = vi.fn().mockResolvedValue(unsubscribe);
+    const connection: HomeAssistantConnection = {
+      subscribeMessage,
+    };
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.setConfig({ card_id: 'card-id', type: 'custom:abstp-player-card' });
+    const firstHass: HomeAssistant = {
+      callService: vi.fn(),
+      callWS: vi.fn(),
+      connection,
+      language: 'en',
+      states: {},
+    };
+    const secondHass: HomeAssistant = {
+      ...firstHass,
+      states: {},
+    };
+
+    card.hass = firstHass;
+    await (
+      card as unknown as { ensureCardPreferenceSubscription: () => Promise<void> }
+    ).ensureCardPreferenceSubscription();
+    card.hass = secondHass;
+    await (
+      card as unknown as { ensureCardPreferenceSubscription: () => Promise<void> }
+    ).ensureCardPreferenceSubscription();
+
+    expect(subscribeMessage).toHaveBeenCalledTimes(1);
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('stops browser playback when the page hides', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    const isBrowserPlayerSpy = vi.spyOn(card.playback, 'isBrowserPlayer').mockReturnValue(true);
+    const stopSpy = vi.spyOn(card.playback, 'stop').mockResolvedValue(undefined);
+
+    document.body.appendChild(card);
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(isBrowserPlayerSpy).toHaveBeenCalled();
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    document.body.removeChild(card);
+  });
+
+  it('applies backend preference before all player states load', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.setConfig({ card_id: 'card-id', type: 'custom:abstp-player-card' });
+    card.hass = {
+      callService: vi.fn(),
+      callWS: vi.fn(),
+      language: 'en',
+      states: {
+        'media_player.abstp_living_room': {
+          attributes: {},
+          entity_id: 'media_player.abstp_living_room',
+          state: 'idle',
+        },
+      },
+    } as unknown as HomeAssistant;
+    const preferenceEvent: CardPreferenceEvent = {
+      available_players: ['media_player.abstp_yandex_station_ff', 'media_player.abstp_living_room'],
+      available_players_known: true,
+      card_id: 'card-id',
+      selected_player: 'media_player.abstp_yandex_station_ff',
+    };
+
+    (
+      card as unknown as {
+        handleCardPreferenceEvent: (message: CardPreferenceEvent) => void;
+      }
+    ).handleCardPreferenceEvent(preferenceEvent);
+
+    expect(card.playback.selectedPlayer).toBe('media_player.abstp_yandex_station_ff');
+  });
+
+  it('applies browser preference when selected player is empty string', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.setConfig({ card_id: 'card-id', type: 'custom:abstp-player-card' });
+    card.hass = {
+      callService: vi.fn(),
+      callWS: vi.fn(),
+      language: 'en',
+      states: {
+        'media_player.abstp_living_room': {
+          attributes: {},
+          entity_id: 'media_player.abstp_living_room',
+          state: 'idle',
+        },
+      },
+    } as unknown as HomeAssistant;
+    const preferenceEvent: CardPreferenceEvent = {
+      available_players: ['', 'media_player.abstp_living_room'],
+      available_players_known: true,
+      card_id: 'card-id',
+      selected_player: '',
+    };
+
+    (
+      card as unknown as {
+        handleCardPreferenceEvent: (message: CardPreferenceEvent) => void;
+      }
+    ).handleCardPreferenceEvent(preferenceEvent);
+
+    expect(card.playback.selectedPlayer).toBe('');
+  });
+
+  it('keeps player picker row until preference subscription is ready', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.setConfig({ card_id: 'card-id', type: 'custom:abstp-player-card' });
+    card.hass = {
+      callService: vi.fn(),
+      callWS: vi.fn(),
+      connection: { subscribeMessage: vi.fn() },
+      language: 'en',
+      states: {},
+    } as unknown as HomeAssistant;
+
+    const rendered = (
+      card as unknown as {
+        renderDevicePicker: (
+          lang: string,
+          allowedPlayers: string[],
+        ) => { strings: readonly string[] };
+      }
+    ).renderDevicePicker('en', ['']);
+
+    expect(rendered.strings.join('')).toContain('device-picker-row');
+    expect(rendered.strings.join('')).toContain('device-picker-row-pending');
   });
 
   it('provides the custom card editor element', async (): Promise<void> => {
@@ -221,7 +355,6 @@ describe('AbstpPlayerCardEditor', (): void => {
     editor.setConfig({
       default_speed: 1.25,
       player_entities: ['media_player.living_room_speaker'],
-      title: 'Test Editor',
       type: 'custom:abstp-player-card',
     });
     expect(editor).toBeDefined();

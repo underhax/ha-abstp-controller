@@ -10,13 +10,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Verbindung zu Audiobookshelf Transcoder Proxy",
+        "title": "Verbindung zu Audiobookshelf Transcoder Proxy Controller",
         "description": "Geben Sie die URL und den API-Schlüssel Ihrer abstp-Instanz ein.",
         "data": {
           "url": "Proxy-Server-URL",
           "api_key": "Geheimer Proxy-API-Schlüssel",
           "default_speed": "Standard-Wiedergabegeschwindigkeit"
         }
+      },
+      "players": {
+        "title": "Ziel-Mediaplayer",
+        "description": "Wählen Sie Lautsprecher aus, die transkodiertes Audio von Audiobookshelf empfangen sollen.",
+        "data": {
+          "target_players": "Ziel-Mediaplayer"
+        }
+      },
+      "friendly_names": {
+        "title": "Namen der virtuellen Player",
+        "description": "Legen Sie optional einen Anzeigenamen für jeden ausgewählten Mediaplayer fest."
       }
     },
     "error": {
@@ -31,15 +42,28 @@
   "options": {
     "step": {
       "init": {
-        "title": "Audiobookshelf Transcoder Proxy Optionen",
+        "title": "Audiobookshelf Transcoder Proxy Controller Optionen",
         "description": "Standard-Wiedergabeeinstellungen konfigurieren.",
         "data": {
-          "default_speed": "Standard-Wiedergabegeschwindigkeit"
+          "default_speed": "Standard-Wiedergabegeschwindigkeit",
+          "target_players": "Ziel-Mediaplayer"
         }
+      },
+      "friendly_names": {
+        "title": "Namen der virtuellen Player",
+        "description": "Legen Sie optional einen Anzeigenamen für jeden ausgewählten Mediaplayer fest."
       }
     }
   },
   "entity": {
+    "media_player": {
+      "player": {
+        "name": "Player"
+      },
+      "browser": {
+        "name": "Dieses Gerät"
+      }
+    },
     "sensor": {
       "status": {
         "name": "Serverstatus"

@@ -24,6 +24,7 @@ from .lovelace import (
     async_unregister_resource,
     compute_frontend_hash,
 )
+from .preferences import CardPreferenceStore, async_get_card_preference_store
 from .services import async_setup_services, async_unload_services
 from .tracker import SessionTracker
 from .websocket import async_register_websocket_handlers
@@ -160,6 +161,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle removal of an entry."""
-    _ = entry
+    """Handle removal of an entry and delete integration-owned preferences."""
     await async_unregister_resource(hass)
+    remaining_entries = [
+        config_entry
+        for config_entry in hass.config_entries.async_entries(DOMAIN)
+        if config_entry.entry_id != entry.entry_id
+    ]
+    if remaining_entries:
+        return
+
+    preference_store = async_get_card_preference_store(hass)
+    await preference_store.async_remove()
+    domain_data = cast("dict[str, object]", hass.data.get(DOMAIN, {}))
+    stored_store = domain_data.get("card_preference_store")
+    if isinstance(stored_store, CardPreferenceStore):
+        _ = domain_data.pop("card_preference_store", None)

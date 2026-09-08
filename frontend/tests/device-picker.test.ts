@@ -2,6 +2,7 @@ import { render, type TemplateResult } from 'lit-html';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type DevicePickerContext,
+  filterAvailablePlayers,
   renderDevicePicker,
   renderPlayerIcon,
   resolveDeviceSubtitle,
@@ -32,16 +33,6 @@ describe('renderPlayerIcon()', (): void => {
     };
     const result: TemplateResult = renderPlayerIcon(entity);
     expect(result.strings.join('')).toContain('mdi:cast');
-  });
-
-  it('renders remote tv icon for android tv devices', (): void => {
-    const entity: HassEntity = {
-      attributes: { friendly_name: 'Bedroom Android TV' },
-      entity_id: 'media_player.bedroom_androidtv',
-      state: 'idle',
-    };
-    const result: TemplateResult = renderPlayerIcon(entity);
-    expect(result.strings.join('')).toContain('mdi:remote-tv');
   });
 
   it('renders speaker icon for yandex station devices', (): void => {
@@ -95,15 +86,13 @@ describe('resolveDeviceSubtitle()', (): void => {
     expect(resolveDeviceSubtitle('media_player.speaker', entity, 'en')).toBe('Unavailable');
   });
 
+  it('returns HTML5 Audio subtitle for browser identifiers', (): void => {
+    expect(resolveDeviceSubtitle('', undefined, 'ru')).toBe('HTML5 Audio');
+  });
+
   it('returns Chromecast subtitle for cast identifiers', (): void => {
     expect(resolveDeviceSubtitle('media_player.chromecast_ultra', undefined, 'en')).toBe(
       'Chromecast',
-    );
-  });
-
-  it('returns Android TV Remote subtitle for android tv identifiers', (): void => {
-    expect(resolveDeviceSubtitle('media_player.android_tv', undefined, 'en')).toBe(
-      'Android TV Remote',
     );
   });
 
@@ -117,6 +106,89 @@ describe('resolveDeviceSubtitle()', (): void => {
     expect(resolveDeviceSubtitle('media_player.kitchen_sound', undefined, 'en')).toBe(
       'kitchen_sound',
     );
+  });
+});
+
+describe('filterAvailablePlayers()', (): void => {
+  it('preserves integration order when the card player list is empty', (): void => {
+    const mockHass = {
+      states: Object.fromEntries([
+        [
+          'media_player.abstp_z',
+          { attributes: {}, entity_id: 'media_player.abstp_z', state: 'idle' },
+        ],
+        [
+          'media_player.abstp_a',
+          { attributes: {}, entity_id: 'media_player.abstp_a', state: 'idle' },
+        ],
+      ]),
+    } as unknown as HomeAssistant;
+
+    expect(
+      filterAvailablePlayers(mockHass, { player_entities: [], type: 'custom:abstp-player-card' }),
+    ).toEqual(['', 'media_player.abstp_z', 'media_player.abstp_a']);
+  });
+
+  it('preserves explicit card player order', (): void => {
+    const mockHass = {
+      states: Object.fromEntries([
+        [
+          'media_player.abstp_z',
+          { attributes: {}, entity_id: 'media_player.abstp_z', state: 'idle' },
+        ],
+        [
+          'media_player.abstp_a',
+          { attributes: {}, entity_id: 'media_player.abstp_a', state: 'idle' },
+        ],
+      ]),
+    } as unknown as HomeAssistant;
+
+    expect(
+      filterAvailablePlayers(mockHass, {
+        player_entities: ['media_player.abstp_a', 'media_player.abstp_z'],
+        type: 'custom:abstp-player-card',
+      }),
+    ).toEqual(['media_player.abstp_a', 'media_player.abstp_z']);
+  });
+
+  it('respects playerOrder positioning when browser is included', (): void => {
+    const mockHass = {
+      states: Object.fromEntries([
+        [
+          'media_player.abstp_z',
+          { attributes: {}, entity_id: 'media_player.abstp_z', state: 'idle' },
+        ],
+        [
+          'media_player.abstp_a',
+          { attributes: {}, entity_id: 'media_player.abstp_a', state: 'idle' },
+        ],
+      ]),
+    } as unknown as HomeAssistant;
+
+    expect(filterAvailablePlayers(mockHass, undefined, ['media_player.abstp_a', ''])).toEqual([
+      'media_player.abstp_a',
+      '',
+      'media_player.abstp_z',
+    ]);
+  });
+
+  it('respects playerOrder when browser is excluded from integration', (): void => {
+    const mockHass = {
+      states: Object.fromEntries([
+        [
+          'media_player.abstp_z',
+          { attributes: {}, entity_id: 'media_player.abstp_z', state: 'idle' },
+        ],
+        [
+          'media_player.abstp_a',
+          { attributes: {}, entity_id: 'media_player.abstp_a', state: 'idle' },
+        ],
+      ]),
+    } as unknown as HomeAssistant;
+
+    expect(
+      filterAvailablePlayers(mockHass, undefined, ['media_player.abstp_a', 'media_player.abstp_z']),
+    ).toEqual(['media_player.abstp_a', 'media_player.abstp_z']);
   });
 });
 

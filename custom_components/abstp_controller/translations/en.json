@@ -10,13 +10,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Audiobookshelf Transcoder Proxy",
+        "title": "Connect to Audiobookshelf Transcoder Proxy Controller",
         "description": "Enter the URL and API key of your abstp instance.",
         "data": {
           "url": "Proxy Server URL",
           "api_key": "Proxy API Secret Key",
           "default_speed": "Default Playback Speed"
         }
+      },
+      "players": {
+        "title": "Target Media Players",
+        "description": "Select speakers that will receive transcoded audio from Audiobookshelf.",
+        "data": {
+          "target_players": "Target Media Players"
+        }
+      },
+      "friendly_names": {
+        "title": "Virtual Player Names",
+        "description": "Optionally set a display name for each selected media player. Leave a field empty to use its entity-derived name."
       }
     },
     "error": {
@@ -31,15 +42,28 @@
   "options": {
     "step": {
       "init": {
-        "title": "Audiobookshelf Transcoder Proxy Options",
+        "title": "Audiobookshelf Transcoder Proxy Controller Options",
         "description": "Configure default playback settings.",
         "data": {
-          "default_speed": "Default Playback Speed"
+          "default_speed": "Default Playback Speed",
+          "target_players": "Target Media Players"
         }
+      },
+      "friendly_names": {
+        "title": "Virtual Player Names",
+        "description": "Optionally set a display name for each selected media player. Leave a field empty to use its entity-derived name."
       }
     }
   },
   "entity": {
+    "media_player": {
+      "player": {
+        "name": "Player"
+      },
+      "browser": {
+        "name": "This device"
+      }
+    },
     "sensor": {
       "status": {
         "name": "Server Status"

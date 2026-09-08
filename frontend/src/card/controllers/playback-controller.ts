@@ -12,7 +12,7 @@ import {
   calculateSpeakerProgress,
   resolvePlayPosition,
 } from '../playback.ts';
-import { getCardStorageKey, loadSelectedPlayer, setStorageItem } from '../storage.ts';
+import { filterAvailablePlayers } from '../templates/device-picker.ts';
 import type { AudioController } from './audio-controller.ts';
 import { BrowserAudioEngine } from './browser-audio-engine.ts';
 import { SpeakerCoordinator } from './speaker-coordinator.ts';
@@ -21,6 +21,7 @@ export interface PlaybackControllerOptions {
   audio: AudioController;
   getConfig: () => AbstpCardConfig | undefined;
   getHass: () => HomeAssistant | undefined;
+  getPlayerOrder?: () => string[];
   onChaptersRequired?: (itemId: string) => void;
   onClearChapters?: () => void;
 }
@@ -50,6 +51,21 @@ export class PlaybackController implements ReactiveController {
     this.host.addController(this);
   }
 
+  public isBrowserPlayer(): boolean {
+    return this.selectedPlayer === '';
+  }
+
+  public isPlaybackActive(): boolean {
+    if (this.isPlaying || this.isBuffering) {
+      return true;
+    }
+    if (!this.isBrowserPlayer() && this.selectedPlayer) {
+      const state = this.options.getHass()?.states[this.selectedPlayer]?.state;
+      return state === 'playing' || state === 'buffering';
+    }
+    return false;
+  }
+
   public hostConnected(): void {
     this.setupAudioListeners();
     this.initSettings();
@@ -57,7 +73,7 @@ export class PlaybackController implements ReactiveController {
 
   public hostDisconnected(): void {
     this.clearPlaybackStopTimeout();
-    if (this.selectedPlayer === '') {
+    if (this.isBrowserPlayer()) {
       void this.stop();
     } else {
       this.stopSpeakerTimer();
@@ -67,8 +83,14 @@ export class PlaybackController implements ReactiveController {
   public initSettings(): void {
     this.audio.initSettings();
     const config: AbstpCardConfig | undefined = this.options.getConfig();
-    this.selectedPlayer = loadSelectedPlayer(config);
-    if (this.selectedPlayer === '') {
+    const hass: HomeAssistant | undefined = this.options.getHass();
+    const allowed: string[] = filterAvailablePlayers(hass, config, this.options.getPlayerOrder?.());
+    if (allowed.length > 0) {
+      this.selectedPlayer = allowed[0] ?? '';
+    } else {
+      this.selectedPlayer = '';
+    }
+    if (this.isBrowserPlayer()) {
       this.audio.syncBrowserVolume(this.engine.player);
     }
   }
@@ -84,7 +106,7 @@ export class PlaybackController implements ReactiveController {
   public setupAudioListeners(): void {
     this.engine.setupListeners({
       onBuffering: (buffering: boolean): void => {
-        if (this.selectedPlayer === '') {
+        if (this.isBrowserPlayer()) {
           this.isBuffering = buffering;
           this.host.requestUpdate();
         }
@@ -104,7 +126,7 @@ export class PlaybackController implements ReactiveController {
   }
 
   public handleBrowserTimeUpdate(pos: number, dur?: number): void {
-    if (this.selectedPlayer !== '' || this.engine.awaitingPlaybackStop) {
+    if (!this.isBrowserPlayer() || this.engine.awaitingPlaybackStop) {
       return;
     }
     if (pos <= 0 && (this.engine.awaitingPlaybackStart || this.isBuffering)) {
@@ -128,7 +150,7 @@ export class PlaybackController implements ReactiveController {
 
   public startSpeakerTimer(): void {
     this.speaker.startTimer((): void => {
-      if (this.isPlaying && this.selectedPlayer !== '' && this.currentItem) {
+      if (this.isPlaying && !this.isBrowserPlayer() && this.currentItem) {
         this.playbackPosition = calculateSpeakerProgress(
           this.playbackPosition,
           this.playbackDuration,
@@ -203,18 +225,22 @@ export class PlaybackController implements ReactiveController {
   }
 
   public syncPlayerState(): void {
-    if (this.selectedPlayer === '') {
+    const hass: HomeAssistant | undefined = this.options.getHass();
+    if (this.isBrowserPlayer()) {
       this.audio.syncBrowserVolume(this.engine.player);
       return;
     }
-    const entity = this.options.getHass()?.states[this.selectedPlayer];
+    const entity = hass?.states[this.selectedPlayer];
     if (!entity) {
       return;
     }
-    const attrs = entity.attributes as { volume_level?: number; is_volume_muted?: boolean };
+    const attrs = entity.attributes;
     this.audio.syncSpeakerVolume(
       typeof attrs.volume_level === 'number' ? attrs.volume_level : undefined,
       typeof attrs.is_volume_muted === 'boolean' ? attrs.is_volume_muted : undefined,
+    );
+    this.audio.syncPlaybackSpeed(
+      typeof attrs.playback_speed === 'number' ? attrs.playback_speed : undefined,
     );
     this.syncPlaybackState(entity.state);
   }
@@ -228,9 +254,7 @@ export class PlaybackController implements ReactiveController {
       return;
     }
 
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
     this.currentItem = item;
-    setStorageItem(getCardStorageKey('last_item_id', config), item.id);
     const initialPosition: number = resolveInitialPosition(item, startTime);
     this.playbackPosition = initialPosition;
     this.playbackDuration = item.duration;
@@ -248,7 +272,7 @@ export class PlaybackController implements ReactiveController {
     this.awaitingPlaybackStart = true;
     this.host.requestUpdate();
 
-    if (this.selectedPlayer === '') {
+    if (this.isBrowserPlayer()) {
       this.stopSpeakerTimer();
       try {
         await this.engine.startSession(
@@ -322,7 +346,7 @@ export class PlaybackController implements ReactiveController {
     this.host.requestUpdate();
 
     const hass: HomeAssistant | undefined = this.options.getHass();
-    if (this.selectedPlayer === '') {
+    if (this.isBrowserPlayer()) {
       await this.engine.stopSession(hass);
     } else if (hass) {
       try {
@@ -335,7 +359,7 @@ export class PlaybackController implements ReactiveController {
     if (!this.currentItem) {
       return;
     }
-    if (this.isPlaying || this.isBuffering) {
+    if (this.isPlaybackActive()) {
       void this.stop();
     } else {
       const startPos: number = resolvePlayPosition(
@@ -361,7 +385,7 @@ export class PlaybackController implements ReactiveController {
       return;
     }
     const { itemId, episodeId } = resolveItemIds(this.currentItem);
-    if (this.selectedPlayer === '') {
+    if (this.isBrowserPlayer()) {
       try {
         await this.engine.restart(
           hass,
@@ -379,6 +403,13 @@ export class PlaybackController implements ReactiveController {
         this.host.requestUpdate();
       }
     } else {
+      try {
+        await SpeakerCoordinator.stop(hass, this.selectedPlayer);
+      } catch {}
+      this.clearPlaybackStopTimeout();
+      this.isBuffering = true;
+      this.isPlaying = false;
+      this.awaitingPlaybackStart = true;
       await this.playOnSpeaker(hass, itemId, episodeId, posToPlay);
     }
     this.host.requestUpdate();
@@ -394,10 +425,8 @@ export class PlaybackController implements ReactiveController {
       if (this.playbackDuration <= 0 && this.currentItem.duration > 0) {
         this.playbackDuration = this.currentItem.duration;
       }
-      if (this.isPlaying || this.isBuffering) {
+      if (this.isPlaybackActive()) {
         await this.restartPlayback(newPosition);
-      } else {
-        await this.playItem(this.currentItem, newPosition);
       }
     }
     this.host.requestUpdate();
@@ -408,12 +437,10 @@ export class PlaybackController implements ReactiveController {
   }
 
   public async selectItem(item: MediaItem | PodcastEpisode | InProgressItem): Promise<void> {
-    if (this.isPlaying || this.isBuffering) {
+    if (this.isPlaybackActive()) {
       await this.stop();
     }
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
     this.currentItem = item;
-    setStorageItem(getCardStorageKey('last_item_id', config), item.id);
     this.playbackPosition = resolveInitialPosition(item);
     this.playbackDuration = item.duration || 0;
     this.isPlaying = false;
@@ -429,11 +456,7 @@ export class PlaybackController implements ReactiveController {
   }
 
   public async applySpeedIfChanged(speedOnOpen: number): Promise<void> {
-    if (
-      this.audio.currentSpeed !== speedOnOpen &&
-      this.currentItem &&
-      (this.isPlaying || this.isBuffering)
-    ) {
+    if (this.audio.currentSpeed !== speedOnOpen && this.currentItem && this.isPlaybackActive()) {
       await this.restartPlayback(this.playbackPosition);
     }
   }
@@ -442,7 +465,7 @@ export class PlaybackController implements ReactiveController {
     if (this.selectedPlayer === playerId) {
       return;
     }
-    const wasPlaying: boolean = this.isPlaying || this.isBuffering;
+    const wasPlaying: boolean = this.isPlaybackActive();
     const currentPos: number = Math.max(0, this.playbackPosition);
     const itemToResume: MediaItem | PodcastEpisode | InProgressItem | null = this.currentItem;
 
@@ -451,8 +474,7 @@ export class PlaybackController implements ReactiveController {
     }
 
     this.selectedPlayer = playerId;
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    setStorageItem(getCardStorageKey('selected_player', config), playerId);
+    this.audio.resetPlaybackSpeed();
     this.syncPlayerState();
 
     if (wasPlaying && itemToResume) {
@@ -474,11 +496,16 @@ export class PlaybackController implements ReactiveController {
     }
     this.playbackPosition = position;
     this.playbackDuration = duration;
-    if (isPlaying || this.isPlaying) {
+    const browserSessionAvailable: boolean =
+      !this.isBrowserPlayer() || this.engine.currentSession !== null;
+    if ((isPlaying || this.isPlaying) && browserSessionAvailable) {
       this.isPlaying = true;
-      if (this.selectedPlayer !== '') {
+      if (!this.isBrowserPlayer()) {
         this.startSpeakerTimer();
       }
+    } else if (this.isBrowserPlayer()) {
+      this.isPlaying = false;
+      this.isBuffering = false;
     }
     this.host.requestUpdate();
   }

@@ -5,7 +5,6 @@ import {
   getCardStorageScope,
   getStorageItem,
   loadBrowserAudioSettings,
-  loadSelectedPlayer,
   loadSelectedSpeed,
   setStorageItem,
 } from '../src/card/storage.ts';
@@ -50,10 +49,8 @@ describe('getStorageItem() and setStorageItem()', (): void => {
 });
 
 describe('getCardStorageScope()', (): void => {
-  it('returns player_entity when specified', (): void => {
-    expect(getCardStorageScope({ player_entity: 'media_player.living_room' })).toBe(
-      'media_player.living_room',
-    );
+  it('returns card_id when specified', (): void => {
+    expect(getCardStorageScope({ card_id: 'card_living_room' })).toBe('card_living_room');
   });
 
   it('joins player_entities when array is provided', (): void => {
@@ -64,10 +61,6 @@ describe('getCardStorageScope()', (): void => {
     ).toBe('media_player.kitchen_media_player.bedroom');
   });
 
-  it('uses sanitized lowercase title when entities are omitted', (): void => {
-    expect(getCardStorageScope({ title: 'My Custom Card' })).toBe('my_custom_card');
-  });
-
   it('defaults to "default" when config is empty or missing', (): void => {
     expect(getCardStorageScope()).toBe('default');
     expect(getCardStorageScope({})).toBe('default');
@@ -76,8 +69,8 @@ describe('getCardStorageScope()', (): void => {
 
 describe('getCardStorageKey()', (): void => {
   it('formats card storage key with scope prefix', (): void => {
-    const key = getCardStorageKey('volume', { player_entity: 'media_player.bed' });
-    expect(key).toBe('abstp_media_player.bed_volume');
+    const key = getCardStorageKey('volume', { card_id: 'card_bed' });
+    expect(key).toBe('abstp_card_bed_volume');
   });
 });
 
@@ -105,37 +98,6 @@ describe('loadBrowserAudioSettings()', (): void => {
     setStorageItem('abstp_default_browser_volume', 'invalid');
     const settings = loadBrowserAudioSettings();
     expect(settings.browserVolume).toBe(DEFAULT_VOLUME_LEVEL);
-  });
-});
-
-describe('loadSelectedPlayer()', (): void => {
-  beforeEach((): void => {
-    storageMock.clear();
-  });
-
-  it('returns stored player if valid and allowed', (): void => {
-    setStorageItem('abstp_default_selected_player', 'media_player.kitchen');
-    const player = loadSelectedPlayer({
-      player_entities: ['media_player.kitchen', 'media_player.bedroom'],
-    });
-    expect(player).toBe('media_player.kitchen');
-  });
-
-  it('falls back to player_entity when stored player is not present', (): void => {
-    const player = loadSelectedPlayer({ player_entity: 'media_player.living_room' });
-    expect(player).toBe('media_player.living_room');
-  });
-
-  it('falls back to first allowed entity', (): void => {
-    const player = loadSelectedPlayer({
-      player_entities: ['media_player.first', 'media_player.second'],
-    });
-    expect(player).toBe('media_player.first');
-  });
-
-  it('returns empty string when browser playback is default option', (): void => {
-    const player = loadSelectedPlayer();
-    expect(player).toBe('');
   });
 });
 

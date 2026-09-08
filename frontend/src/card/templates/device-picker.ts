@@ -33,9 +33,7 @@ export function renderPlayerIcon(
   if (id.includes('chromecast') || id.includes('_cast') || entityAttrs?.app_name === 'Cast') {
     return html`<ha-icon class="icon icon-device" icon="mdi:cast"></ha-icon>`;
   }
-  if (id.includes('androidtv') || id.includes('android_tv') || id.includes('remote')) {
-    return html`<ha-icon class="icon icon-device" icon="mdi:remote-tv"></ha-icon>`;
-  }
+
   if (id.includes('yandex') || id.includes('station') || id.includes('alice')) {
     return speakerIcon;
   }
@@ -58,24 +56,28 @@ export function resolveDeviceSubtitle(
   entity: HassEntity | undefined,
   lang: string,
 ): string {
-  if (entity?.state === 'unavailable') {
+  if (
+    entity &&
+    (entity.state === 'unavailable' ||
+      entity.state === 'unknown' ||
+      entity.attributes.target_available === false)
+  ) {
     return localize('card.unavailable', lang);
   }
-  const lowerId: string = id.toLowerCase();
+  if (id === '') {
+    return 'HTML5 Audio';
+  }
+  const targetPlayer: string | undefined = entity?.attributes.target_player as string | undefined;
+  const targetId: string = targetPlayer ?? id;
+  const lowerId: string = targetId.toLowerCase();
   if (lowerId.includes('chromecast') || lowerId.includes('_cast')) {
     return 'Chromecast';
   }
-  if (
-    lowerId.includes('androidtv') ||
-    lowerId.includes('android_tv') ||
-    lowerId.includes('remote')
-  ) {
-    return 'Android TV Remote';
-  }
+
   if (lowerId.includes('yandex') || lowerId.includes('station')) {
     return 'Yandex Station';
   }
-  return id.replace('media_player.', '');
+  return targetId.replace('media_player.', '');
 }
 
 export function renderSpeakerMenuItem(
@@ -85,9 +87,19 @@ export function renderSpeakerMenuItem(
   selectedPlayer: string,
   onSelectPlayer: (id: string) => void | Promise<void>,
 ): TemplateResult {
-  const entity: HassEntity | undefined = hass?.states[id];
-  const friendlyName: string = entity?.attributes.friendly_name ?? id;
-  const isUnavailable: boolean = entity?.state === 'unavailable';
+  const isBrowser: boolean = id === '';
+  const entity: HassEntity | undefined = isBrowser ? undefined : hass?.states[id];
+  const friendlyName: string = isBrowser
+    ? localize('card.browser', lang)
+    : (entity?.attributes.friendly_name ?? id);
+  const isUnavailable: boolean =
+    !isBrowser &&
+    Boolean(
+      entity &&
+        (entity.state === 'unavailable' ||
+          entity.state === 'unknown' ||
+          entity.attributes.target_available === false),
+    );
   const isSelected: boolean = selectedPlayer === id;
   const subtitle: string = resolveDeviceSubtitle(id, entity, lang);
 
@@ -100,7 +112,7 @@ export function renderSpeakerMenuItem(
         }
       }}
     >
-      ${renderPlayerIcon(entity, id)}
+      ${isBrowser ? browserIcon : renderPlayerIcon(entity, id)}
       <div class="device-item-info">
         <span class="device-item-name">${friendlyName}</span>
         ${subtitle ? html`<span class="device-item-area">${subtitle}</span>` : html``}
@@ -111,8 +123,6 @@ export function renderSpeakerMenuItem(
 
 export function renderDeviceMenuPopover(
   lang: string,
-  allowBrowser: boolean,
-  isBrowser: boolean,
   allowedSpeakers: string[],
   hass: HomeAssistant | undefined,
   selectedPlayer: string,
@@ -120,23 +130,6 @@ export function renderDeviceMenuPopover(
 ): TemplateResult {
   return html`
     <div class="device-menu-popover">
-      ${
-        allowBrowser
-          ? html`
-            <div
-              class="device-menu-item ${isBrowser ? 'active' : ''}"
-              @click=${(): void => {
-                void onSelectPlayer('');
-              }}
-            >
-              ${browserIcon}
-              <div class="device-item-info">
-                <span class="device-item-name">${localize('card.browser', lang)}</span>
-              </div>
-            </div>
-          `
-          : html``
-      }
       ${allowedSpeakers.map(
         (id: string): TemplateResult =>
           renderSpeakerMenuItem(id, lang, hass, selectedPlayer, onSelectPlayer),
@@ -146,18 +139,15 @@ export function renderDeviceMenuPopover(
 }
 
 export function renderDevicePicker(context: DevicePickerContext): TemplateResult {
-  const allowBrowser: boolean =
-    context.config?.player_entities === undefined || context.config.player_entities.includes('');
-  const allowedSpeakers: string[] = context.allowedPlayers.filter(
-    (id: string): boolean => id !== '',
-  );
-  const totalOptionsCount: number = (allowBrowser ? 1 : 0) + allowedSpeakers.length;
-  const isSingleConfigured: boolean = totalOptionsCount <= 1;
-
+  const allowedSpeakers: string[] = context.allowedPlayers;
+  if (allowedSpeakers.length === 0) {
+    return html``;
+  }
+  const isSingleConfigured: boolean = allowedSpeakers.length <= 1;
   const isBrowser: boolean = context.selectedPlayer === '';
-  const currentEntity: HassEntity | undefined = !isBrowser
-    ? context.hass?.states[context.selectedPlayer]
-    : undefined;
+  const currentEntity: HassEntity | undefined = isBrowser
+    ? undefined
+    : context.hass?.states[context.selectedPlayer];
   const currentName: string = isBrowser
     ? localize('card.browser', context.lang)
     : (currentEntity?.attributes.friendly_name ?? context.selectedPlayer);
@@ -189,8 +179,6 @@ export function renderDevicePicker(context: DevicePickerContext): TemplateResult
         context.showDeviceMenu
           ? renderDeviceMenuPopover(
               context.lang,
-              allowBrowser,
-              isBrowser,
               allowedSpeakers,
               context.hass,
               context.selectedPlayer,
@@ -205,35 +193,24 @@ export function renderDevicePicker(context: DevicePickerContext): TemplateResult
 export function filterAvailablePlayers(
   hass: HomeAssistant | undefined,
   config?: AbstpCardConfig,
+  playerOrder: string[] = [],
 ): string[] {
-  const allPlayers: string[] = Object.keys(hass?.states ?? {}).filter((id: string): boolean => {
-    if (!id.startsWith('media_player.')) {
-      return false;
-    }
-    const lowerId: string = id.toLowerCase();
-    if (lowerId.includes('intent') || lowerId.includes('yandex_station_intents')) {
-      return false;
-    }
-    const entity: HassEntity | undefined = hass?.states[id];
-    if (!entity) {
-      return false;
-    }
-    const entityAttrs = entity.attributes as {
-      device_class?: string;
-      supported_features?: number;
-    };
-    const devClass: string = (entityAttrs.device_class ?? '').toLowerCase();
-    if (devClass === 'intent' || devClass === 'intents') {
-      return false;
-    }
-    const features: number = entityAttrs.supported_features ?? 0;
-    return (features & 512) !== 0;
-  });
-
+  const states = hass?.states ?? {};
+  const allPlayers: string[] = Object.keys(states).filter((id: string): boolean =>
+    id.startsWith('media_player.abstp_'),
+  );
   if (config?.player_entities && config.player_entities.length > 0) {
-    const allowed: string[] = config.player_entities;
-    return allPlayers.filter((id: string): boolean => allowed.includes(id));
+    const allowed: string[] = config.player_entities.filter(
+      (id: string): boolean => id === '' || id.startsWith('media_player.abstp_'),
+    );
+    return [...new Set(allowed)];
   }
 
-  return allPlayers;
+  if (playerOrder.length > 0) {
+    const playerSet: Set<string> = new Set(playerOrder);
+    const extraPlayers: string[] = allPlayers.filter((id: string): boolean => !playerSet.has(id));
+    return [...playerOrder, ...extraPlayers];
+  }
+
+  return ['', ...allPlayers];
 }

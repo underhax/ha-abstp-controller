@@ -96,6 +96,7 @@ export interface TimelineContainerContext {
 
 export interface HeroPlayerContext extends ControlsBarContext, TimelineContainerContext {
   devicePicker: TemplateResult;
+  isTargetUnavailable?: boolean;
 }
 
 export function renderPlaybackControls(context: PlaybackControlsContext): TemplateResult {
@@ -462,6 +463,14 @@ export function renderTimelineContainer(context: TimelineContainerContext): Temp
 }
 
 export function renderHeroPlayer(context: HeroPlayerContext): TemplateResult {
+  if (context.isTargetUnavailable) {
+    return html`
+      <div class="player-hero">
+        ${context.devicePicker}
+      </div>
+    `;
+  }
+
   return html`
     <div class="player-hero">
       ${context.devicePicker}

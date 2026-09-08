@@ -6,6 +6,7 @@ from typing import Final
 from homeassistant.const import Platform
 
 DOMAIN: Final = "abstp_controller"
+DEFAULT_NAME: Final = "Audiobookshelf Transcoder Proxy Controller"
 LOGGER: Final = logging.getLogger(__package__)
 
 CONF_URL: Final = "url"
@@ -18,6 +19,7 @@ MAX_SPEED: Final = 3.0
 SPEED_STEP: Final = 0.05
 
 DEFAULT_SCAN_INTERVAL: Final = 300
+SESSION_STARTUP_TIMEOUT: Final[float] = 5.0
 
 SERVICE_PLAY: Final = "play"
 SERVICE_STOP: Final = "stop"
@@ -27,11 +29,20 @@ SERVICE_REFRESH_LIBRARY: Final = "refresh_library"
 ATTR_ITEM_ID: Final = "item_id"
 ATTR_EPISODE_ID: Final = "episode_id"
 ATTR_SPEED: Final = "speed"
+ATTR_PLAYBACK_SPEED: Final = "playback_speed"
 ATTR_CURRENT_TIME: Final = "current_time"
 ATTR_SESSION_ID: Final = "session_id"
+
+CONF_TARGET_PLAYERS: Final = "target_players"
+CONF_PLAYER_FRIENDLY_NAMES: Final = "player_friendly_names"
+PREFIX_VIRTUAL_PLAYER: Final = "abstp_"
+SOURCE_BROWSER_ID: Final = "browser"
+ATTR_TARGET_PLAYER: Final = "target_player"
+ATTR_TARGET_AVAILABLE: Final = "target_available"
 
 PLATFORMS: Final[list[Platform]] = [
     Platform.SENSOR,
     Platform.NUMBER,
     Platform.BUTTON,
+    Platform.MEDIA_PLAYER,
 ]

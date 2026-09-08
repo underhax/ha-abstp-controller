@@ -23,6 +23,46 @@ export interface ChaptersResponse {
   chapters: ChapterItem[];
 }
 
+export interface CardPreferenceEvent {
+  available_players: string[];
+  available_players_known: boolean;
+  card_id: string;
+  selected_player: string | null;
+}
+
+export interface CardPreferenceResponse {
+  available_players: string[];
+  available_players_known: boolean;
+  card_id: string;
+  selected_player: string | null;
+}
+
+export async function subscribeCardPreference(
+  hass: HomeAssistant,
+  cardId: string,
+  callback: (message: CardPreferenceEvent) => void,
+): Promise<() => void> {
+  if (!hass.connection) {
+    return (): void => {};
+  }
+  return hass.connection.subscribeMessage<CardPreferenceEvent>(callback, {
+    card_id: cardId,
+    type: 'abstp_controller/subscribe_card_preference',
+  });
+}
+
+export async function setCardPreference(
+  hass: HomeAssistant,
+  cardId: string,
+  selectedPlayer: string | null,
+): Promise<CardPreferenceResponse> {
+  return hass.callWS<CardPreferenceResponse>({
+    card_id: cardId,
+    selected_player: selectedPlayer,
+    type: 'abstp_controller/set_card_preference',
+  });
+}
+
 export async function fetchLibrary(hass: HomeAssistant): Promise<LibraryResponse> {
   return hass.callWS<LibraryResponse>({
     type: 'abstp_controller/get_library',

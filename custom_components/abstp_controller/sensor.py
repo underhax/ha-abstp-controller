@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from .coordinator import AbstpData, AbstpDataUpdateCoordinator
 
-from .const import DOMAIN
+from .const import DEFAULT_NAME, DOMAIN
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -99,7 +99,7 @@ class AbstpSensor(SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Audiobookshelf Transcoder Proxy",
+            name=DEFAULT_NAME,
             manufacturer="underhax",
             model="abstp",
             configuration_url=coordinator.client.base_url,

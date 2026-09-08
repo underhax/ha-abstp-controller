@@ -8,7 +8,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
-from .const import DOMAIN
+from .const import DEFAULT_NAME, DOMAIN
 from .coordinator import AbstpDataUpdateCoordinator
 
 
@@ -29,7 +29,7 @@ class AbstpEntity(CoordinatorEntity[AbstpDataUpdateCoordinator]):
         self._entry = entry
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Audiobookshelf Transcoder Proxy",
+            name=DEFAULT_NAME,
             manufacturer="underhax",
             model="abstp",
             configuration_url=coordinator.client.base_url,

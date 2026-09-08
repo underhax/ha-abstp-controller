@@ -10,13 +10,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Подключение к Audiobookshelf Transcoder Proxy",
+        "title": "Подключение к Audiobookshelf Transcoder Proxy Controller",
         "description": "Введите адрес и API ключ вашего экземпляра abstp.",
         "data": {
           "url": "URL адрес прокси-сервера",
           "api_key": "Секретный API ключ прокси",
           "default_speed": "Скорость воспроизведения по умолчанию"
         }
+      },
+      "players": {
+        "title": "Целевые медиаплееры",
+        "description": "Выберите колонки, на которые будет передаваться транскодированное аудио из Audiobookshelf.",
+        "data": {
+          "target_players": "Целевые медиаплееры"
+        }
+      },
+      "friendly_names": {
+        "title": "Имена виртуальных плееров",
+        "description": "При необходимости укажите отображаемое имя для каждого выбранного медиаплеера. Оставьте поле пустым, чтобы использовать стандартное имя."
       }
     },
     "error": {
@@ -31,15 +42,28 @@
   "options": {
     "step": {
       "init": {
-        "title": "Параметры Audiobookshelf Transcoder Proxy",
+        "title": "Параметры Audiobookshelf Transcoder Proxy Controller",
         "description": "Настройка параметров воспроизведения по умолчанию.",
         "data": {
-          "default_speed": "Скорость воспроизведения по умолчанию"
+          "default_speed": "Скорость воспроизведения по умолчанию",
+          "target_players": "Целевые медиаплееры"
         }
+      },
+      "friendly_names": {
+        "title": "Имена виртуальных плееров",
+        "description": "При необходимости укажите отображаемое имя для каждого выбранного медиаплеера. Оставьте поле пустым, чтобы использовать стандартное имя."
       }
     }
   },
   "entity": {
+    "media_player": {
+      "player": {
+        "name": "Плеер"
+      },
+      "browser": {
+        "name": "Это устройство"
+      }
+    },
     "sensor": {
       "status": {
         "name": "Статус сервера"

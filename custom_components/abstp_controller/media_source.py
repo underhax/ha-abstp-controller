@@ -10,6 +10,7 @@ from homeassistant.components.media_source import (
     Unresolvable,
 )
 from homeassistant.components.media_source.models import BrowseMediaSource
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.translation import async_get_translations
 
 if TYPE_CHECKING:
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from .coordinator import AbstpDataUpdateCoordinator
 
 from .api import AbstpApiError, AbstpAuthError, AbstpConnectionError
-from .const import CONF_DEFAULT_SPEED, DEFAULT_SPEED, DOMAIN
+from .const import CONF_DEFAULT_SPEED, DEFAULT_SPEED, DOMAIN, LOGGER
 
 
 async def async_get_media_source(hass: HomeAssistant) -> MediaSource:
@@ -78,6 +79,23 @@ class AbstpMediaSource(MediaSource):
     @override
     async def async_browse_media(self, item: MediaSourceItem) -> BrowseMediaSource:
         """Build the hierarchical media browsing tree."""
+        current_lang = getattr(self.hass.config, "language", "en")
+        try:
+            fresh_trans = await async_get_translations(
+                self.hass,
+                current_lang,
+                "media_source",
+                {DOMAIN},
+            )
+            if fresh_trans:
+                self._translations = fresh_trans
+        except (HomeAssistantError, OSError) as err:
+            LOGGER.debug(
+                "Could not refresh media_source translations for %s: %s",
+                current_lang,
+                err,
+            )
+
         coordinator = self._get_coordinator()
         data = coordinator.data
         identifier = item.identifier or ""

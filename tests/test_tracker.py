@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant
+    from homeassistant.core import HomeAssistant, ServiceCall
+
+from homeassistant.const import ATTR_ENTITY_ID, STATE_IDLE, STATE_PAUSED, STATE_PLAYING
 
 from custom_components.abstp_controller.api import AbstpApiClient
 from custom_components.abstp_controller.tracker import SessionTracker
@@ -94,3 +96,46 @@ async def test_session_tracker_stop_all(hass: HomeAssistant) -> None:
     assert len(tracker.get_all_active_sessions()) == 0
     stop_mock = cast("AsyncMock", client.async_stop_session)
     assert stop_mock.call_count == 2
+
+
+async def test_session_tracker_pause_triggers_stop(hass: HomeAssistant) -> None:
+    """Test target pause triggers stop service and terminates session."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.async_stop_session = AsyncMock(return_value=True)
+
+    stop_calls: list[ServiceCall] = []
+
+    async def _mock_stop(call: ServiceCall) -> None:
+        stop_calls.append(call)
+
+    hass.services.async_register("media_player", "media_stop", _mock_stop)
+
+    entity_id = "media_player.station"
+    hass.states.async_set(entity_id, STATE_IDLE)
+
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id=entity_id,
+        session_id="sess_pause",
+        item_id="book_pause",
+        episode_id=None,
+        speed=1.0,
+        initial_position=0.0,
+    )
+
+    hass.states.async_set(entity_id, STATE_PAUSED)
+    await hass.async_block_till_done()
+    assert tracker.get_active_session(entity_id) is not None
+    assert len(stop_calls) == 0
+
+    hass.states.async_set(entity_id, STATE_PLAYING)
+    await hass.async_block_till_done()
+    assert tracker.get_active_session(entity_id) is not None
+
+    hass.states.async_set(entity_id, STATE_PAUSED)
+    await hass.async_block_till_done()
+
+    assert tracker.get_active_session(entity_id) is None
+    assert len(stop_calls) == 1
+    assert stop_calls[0].data.get(ATTR_ENTITY_ID) == entity_id
+    cast("AsyncMock", client.async_stop_session).assert_called_once_with("sess_pause")
