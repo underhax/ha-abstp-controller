@@ -117,11 +117,21 @@ export function findSavedItem(
   inProgress: InProgressItem[],
   books: MediaItem[],
   podcasts: MediaItem[],
+  episodeId?: string | null,
 ): MediaItem | InProgressItem | undefined {
+  const inProgressItem: InProgressItem | undefined = inProgress.find(
+    (item: InProgressItem): boolean =>
+      item.id === itemId && (episodeId === undefined || (item.episode_id ?? null) === episodeId),
+  );
+  if (inProgressItem) {
+    return inProgressItem;
+  }
+  if (episodeId) {
+    return undefined;
+  }
   return (
-    inProgress.find((i: InProgressItem): boolean => i.id === itemId) ||
-    books.find((b: MediaItem): boolean => b.id === itemId) ||
-    podcasts.find((p: MediaItem): boolean => p.id === itemId)
+    books.find((book: MediaItem): boolean => book.id === itemId) ||
+    podcasts.find((podcast: MediaItem): boolean => podcast.id === itemId)
   );
 }
 

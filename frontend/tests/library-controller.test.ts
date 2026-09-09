@@ -573,6 +573,45 @@ describe('LibraryController', (): void => {
     );
   });
 
+  it('uses in-progress current time instead of stale player attributes', (): void => {
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_living_room': {
+        attributes: { item_id: 'book_1', media_position: 100 },
+        entity_id: 'media_player.abstp_living_room',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): null => null,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living_room',
+      onRestoreItem,
+    });
+    customLibrary.inProgress = [
+      {
+        author: 'Author',
+        cover_url: '',
+        current_time: 2500,
+        duration: 5000,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 2500,
+        title: 'Book One',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ current_time: 2500, id: 'book_1' }),
+      2500,
+      5000,
+      false,
+    );
+  });
+
   it('does not overwrite current item when playback is active', (): void => {
     const onRestoreItem = vi.fn();
     const existingItem: MediaItem = {

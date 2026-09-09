@@ -19,7 +19,6 @@ from homeassistant.const import (
     STATE_IDLE,
     STATE_OFF,
     STATE_PAUSED,
-    STATE_PLAYING,
     STATE_STANDBY,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -50,8 +49,10 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.restore_state import RestoreEntity
 
+    from .api import InProgressItem
     from .coordinator import AbstpData, AbstpDataUpdateCoordinator
     from .tracker import ActiveSession, SessionTracker
+
 
 from .const import (
     ATTR_CURRENT_TIME,
@@ -70,6 +71,7 @@ from .const import (
     SERVICE_PLAY,
     SESSION_STARTUP_TIMEOUT,
 )
+from .media_library import AbstpMediaLibrary
 from .services import resolve_media_metadata
 
 
@@ -321,6 +323,37 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
         """Lookup active session associated with this target device."""
         return self._tracker.get_active_session(self._target_entity_id)
 
+    def _get_selected_in_progress_item(self) -> InProgressItem | None:
+        """Return ABS progress only when it belongs to this virtual player selection."""
+        if self._item_id is None:
+            return None
+        for item in self.coordinator.data.in_progress:
+            if item.id == self._item_id and item.episode_id == self._episode_id:
+                return item
+        return None
+
+    def _sync_idle_media_from_abs(self) -> None:
+        """Refresh retained ABSTP media attributes from the authoritative snapshot."""
+        item = self._get_selected_in_progress_item()
+        if item is None:
+            return
+        title, artist, cover_url = resolve_media_metadata(
+            self.hass,
+            self.coordinator,
+            item.id,
+            item.episode_id,
+        )
+        self._attr_media_content_type = (
+            MediaType.PODCAST if item.episode_id else MediaType.MUSIC
+        )
+        self._attr_media_title = title or item.id
+        self._attr_media_artist = artist
+        self._attr_entity_picture = cover_url
+        self._attr_media_image_url = cover_url
+        self._attr_media_duration = int(item.duration)
+        self._attr_media_position = int(item.current_time)
+        self._attr_media_position_updated_at = None
+
     def update_state_attributes(self) -> None:
         """Sync internal attributes with session tracker and target device."""
         session = self._get_current_session()
@@ -364,19 +397,14 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
                 self._tracker.estimate_current_position(self._target_entity_id)
             )
             self._attr_media_position_updated_at = utcnow()
-        elif target_state:
-            if target_raw == STATE_PLAYING:
-                self._attr_state = MediaPlayerState.PLAYING
-            elif target_raw in (STATE_PAUSED, STATE_IDLE, STATE_STANDBY):
-                self._attr_state = MediaPlayerState.IDLE
-            elif target_raw == STATE_OFF:
-                self._attr_state = MediaPlayerState.OFF
-            else:
-                self._attr_state = MediaPlayerState.IDLE
+        elif target_raw == STATE_OFF:
+            self._attr_state = MediaPlayerState.OFF
             self._attr_media_position_updated_at = None
+            self._sync_idle_media_from_abs()
         else:
             self._attr_state = MediaPlayerState.IDLE
             self._attr_media_position_updated_at = None
+            self._sync_idle_media_from_abs()
 
         if target_state:
             vol_attr = target_state.attributes.get("volume_level")
@@ -424,9 +452,14 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
         """Start or resume audio playback on the virtual player facade."""
         target_id = self._target_entity_id
 
+        selected_progress_item = self._get_selected_in_progress_item()
         item_id = self._item_id
         episode_id = self._episode_id
-        position = float(self._attr_media_position or 0)
+        position = (
+            float(selected_progress_item.current_time)
+            if selected_progress_item
+            else float(self._attr_media_position or 0)
+        )
 
         if not item_id:
             coordinator_data: AbstpData | None = getattr(self.coordinator, "data", None)
@@ -592,12 +625,10 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
         media_content_type: str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Browse media sources exposing Audiobookshelf library."""
+        """Browse the Audiobookshelf library attached to this virtual player."""
         _ = media_content_type
-        return await media_source.async_browse_media(
-            self.hass,
-            media_content_id,
-        )
+        library = AbstpMediaLibrary(self.hass, self.coordinator)
+        return await library.async_browse_media(media_content_id)
 
     @override
     async def async_play_media(
@@ -613,16 +644,15 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
         item_id: str | None = None
         episode_id: str | None = None
 
-        if media_id.startswith("media-source://abstp_controller/"):
-            path = media_id.removeprefix("media-source://abstp_controller/")
-            parts = path.split("/")
-            if parts[0] in ("book", "in_progress") and len(parts) > 1:
-                item_id = parts[1]
-                if len(parts) > 2:
-                    episode_id = parts[2]
-            elif parts[0] == "episode" and len(parts) > 2:
-                item_id = parts[1]
-                episode_id = parts[2]
+        path_parts = media_id.split("/")
+        if path_parts[0] == "book" and len(path_parts) == 2:
+            item_id = path_parts[1]
+        elif path_parts[0] == "in_progress" and len(path_parts) in (2, 3):
+            item_id = path_parts[1]
+            episode_id = path_parts[2] if len(path_parts) == 3 else None
+        elif path_parts[0] == "episode" and len(path_parts) == 3:
+            item_id = path_parts[1]
+            episode_id = path_parts[2]
         elif not media_source.is_media_source_id(media_id) and not media_id.startswith(
             ("http://", "https://")
         ):

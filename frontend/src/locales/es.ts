@@ -2,7 +2,6 @@ export const es = {
   'card.all': 'Todos',
   'card.author': 'Autor',
   'card.books': 'Audiolibros',
-  'card.browser': 'Este dispositivo',
   'card.buffering': 'Iniciando transmisión...',
   'card.chapters': 'Capítulos',
   'card.clear_search': 'Borrar búsqueda',

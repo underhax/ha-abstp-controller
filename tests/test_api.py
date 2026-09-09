@@ -220,6 +220,39 @@ async def test_stop_session_success(mock_session: MagicMock) -> None:
     assert result is True
 
 
+async def test_stop_session_not_found(mock_session: MagicMock) -> None:
+    """Test stopping a session raises error when proxy responds with 404."""
+    mock_response = MagicMock()
+    mock_response.status = 404
+    mock_response.raise_for_status = MagicMock(
+        side_effect=aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=404, message="Not Found"
+        )
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpApiError) as exc_info:
+        _ = await client.async_stop_session("sess_already_stopped")
+    assert exc_info.value.status == 404
+
+
+async def test_stop_session_server_error(mock_session: MagicMock) -> None:
+    """Test stopping a session when proxy returns 500 error."""
+    mock_response = MagicMock()
+    mock_response.status = 500
+    mock_response.raise_for_status = MagicMock(
+        side_effect=aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=500, message="Server Error"
+        )
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpApiError):
+        _ = await client.async_stop_session("sess_500")
+
+
 async def test_api_client_error_handling(mock_session: MagicMock) -> None:
     """Test general error status handling."""
     mock_response = MagicMock()

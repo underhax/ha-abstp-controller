@@ -55,6 +55,7 @@ export class LibraryController implements ReactiveController {
   public filterProgress: 'all' | 'in_progress' | 'finished' = 'all';
   public activeTab: 'in_progress' | 'books' | 'podcasts' = 'in_progress';
   public isRefreshing: boolean = false;
+  public isFetchingLibrary: boolean = false;
   public isLoadingChapters: boolean = false;
   public libraryLoaded: boolean = false;
   public userSelectedTab: boolean = false;
@@ -68,23 +69,27 @@ export class LibraryController implements ReactiveController {
   }
 
   public hostDisconnected(): void {
+    this.isFetchingLibrary = false;
     this.isRefreshing = false;
   }
 
-  public async fetchLibrary(): Promise<void> {
+  public async fetchLibrary(background: boolean = false): Promise<void> {
     const hass: HomeAssistant | undefined = this.options.getHass();
     if (!hass) {
       return;
     }
     const fetchGeneration: number = ++this.libraryFetchGeneration;
-    this.isRefreshing = true;
-    this.host.requestUpdate();
+    this.isFetchingLibrary = true;
+    if (!background) {
+      this.isRefreshing = true;
+      this.host.requestUpdate();
+    }
     try {
       const response = await fetchLibrary(hass);
       if (fetchGeneration !== this.libraryFetchGeneration) {
         return;
       }
-      this.applyLibraryResponse(response);
+      this.applyLibraryUpdate(response);
     } catch {
       if (fetchGeneration !== this.libraryFetchGeneration) {
         return;
@@ -94,13 +99,14 @@ export class LibraryController implements ReactiveController {
       this.inProgress = [];
     } finally {
       if (fetchGeneration === this.libraryFetchGeneration) {
+        this.isFetchingLibrary = false;
         this.isRefreshing = false;
         this.host.requestUpdate();
       }
     }
   }
 
-  private applyLibraryResponse(response: LibraryResponse): void {
+  public applyLibraryUpdate(response: LibraryResponse): void {
     this.books = response.books;
     this.podcasts = response.podcasts;
     this.inProgress = response.in_progress ?? [];
@@ -115,6 +121,7 @@ export class LibraryController implements ReactiveController {
       }
     }
     this.restoreActiveOrSavedItem(response.active_sessions ?? {});
+    this.host.requestUpdate();
   }
 
   public async fetchEpisodes(podcastId: string): Promise<void> {
@@ -205,8 +212,10 @@ export class LibraryController implements ReactiveController {
       this.options.getCurrentItem?.();
     if (currentItem) {
       if (!this.options.getIsPlaying?.()) {
+        const { episodeId, itemId } = resolveItemIds(currentItem);
         const updatedItem: MediaItem | InProgressItem | undefined = this.findSavedItem(
-          currentItem.id,
+          itemId,
+          episodeId,
         );
         if (updatedItem) {
           const newPos: number = resolveInitialPosition(updatedItem);
@@ -221,17 +230,12 @@ export class LibraryController implements ReactiveController {
     this.restoreFromSavedOrDefault();
   }
 
-  private static getSessionId(playerId: string): string {
-    return playerId === '' ? 'browser' : playerId;
-  }
-
   private static findAllowedPlayerSession(
     activeSessions: Record<string, ActiveSessionInfo>,
     allowedPlayers: string[],
   ): [string, ActiveSessionInfo] | undefined {
     for (const playerId of allowedPlayers) {
-      const session: ActiveSessionInfo | undefined =
-        activeSessions[LibraryController.getSessionId(playerId)];
+      const session: ActiveSessionInfo | undefined = activeSessions[playerId];
       if (session) {
         return [playerId, session];
       }
@@ -243,8 +247,7 @@ export class LibraryController implements ReactiveController {
     activeSessions: Record<string, ActiveSessionInfo>,
   ): ActiveSessionInfo | undefined {
     const selectedPlayer: string = this.options.getSelectedPlayer?.() ?? '';
-    const selectedSession: ActiveSessionInfo | undefined =
-      activeSessions[LibraryController.getSessionId(selectedPlayer)];
+    const selectedSession: ActiveSessionInfo | undefined = activeSessions[selectedPlayer];
     if (selectedSession) {
       return selectedSession;
     }
@@ -271,8 +274,7 @@ export class LibraryController implements ReactiveController {
     if (firstActiveId === undefined || !firstSession) {
       return undefined;
     }
-    const selectedId: string = firstActiveId === 'browser' ? '' : firstActiveId;
-    this.options.onSelectedPlayerChange?.(selectedId);
+    this.options.onSelectedPlayerChange?.(firstActiveId);
     return firstSession;
   }
 
@@ -283,6 +285,7 @@ export class LibraryController implements ReactiveController {
     }
     const matchedItem: MediaItem | InProgressItem | undefined = this.findSavedItem(
       activeSession.item_id,
+      activeSession.episode_id,
     );
     if (!matchedItem) {
       return false;
@@ -310,8 +313,10 @@ export class LibraryController implements ReactiveController {
     const restoredItemId: string | undefined = playerEntity?.attributes.item_id as
       | string
       | undefined;
+    const rawEpisodeId: unknown = playerEntity?.attributes.episode_id;
+    const restoredEpisodeId: string | null = typeof rawEpisodeId === 'string' ? rawEpisodeId : null;
     const savedItem: MediaItem | InProgressItem | undefined = restoredItemId
-      ? this.findSavedItem(restoredItemId)
+      ? this.findSavedItem(restoredItemId, restoredEpisodeId)
       : undefined;
     if (restoredItemId && !savedItem) {
       return;
@@ -321,16 +326,7 @@ export class LibraryController implements ReactiveController {
     if (!targetItem) {
       return;
     }
-    const restoredPos: number | undefined =
-      typeof playerEntity?.attributes.current_time === 'number'
-        ? (playerEntity.attributes.current_time as number)
-        : typeof playerEntity?.attributes.media_position === 'number'
-          ? (playerEntity.attributes.media_position as number)
-          : undefined;
-    const pos: number =
-      savedItem && restoredPos !== undefined && restoredPos >= 0
-        ? restoredPos
-        : resolveInitialPosition(targetItem);
+    const pos: number = resolveInitialPosition(targetItem);
     this.options.onRestoreItem?.(targetItem, pos, targetItem.duration || 0, false);
     if (isPodcastItem(targetItem)) {
       this.clearChapters();
@@ -340,8 +336,11 @@ export class LibraryController implements ReactiveController {
     }
   }
 
-  public findSavedItem(itemId: string): MediaItem | InProgressItem | undefined {
-    return findSavedItem(itemId, this.inProgress, this.books, this.podcasts);
+  public findSavedItem(
+    itemId: string,
+    episodeId?: string | null,
+  ): MediaItem | InProgressItem | undefined {
+    return findSavedItem(itemId, this.inProgress, this.books, this.podcasts, episodeId);
   }
 
   public getFilteredInProgress(): InProgressItem[] {

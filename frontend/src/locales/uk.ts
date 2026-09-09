@@ -2,7 +2,6 @@ export const uk = {
   'card.all': 'Всі',
   'card.author': 'Автор',
   'card.books': 'Аудіокниги',
-  'card.browser': 'Цей пристрій',
   'card.buffering': 'Запуск стріму...',
   'card.chapters': 'Розділи',
   'card.clear_search': 'Очистити пошук',

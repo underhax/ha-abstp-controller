@@ -1,5 +1,4 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit';
-import type { BrowserAudioPlayer } from '../../audio-player.ts';
 import type { AbstpCardConfig, HomeAssistant } from '../../types.ts';
 import { setSpeakerMute, setSpeakerVolume } from '../api.ts';
 import {
@@ -9,12 +8,7 @@ import {
   SPEED_HOLD_INTERVAL_MS,
 } from '../constants.ts';
 import { calculateNextSpeed, clampVolume, isSpeedOutOfRange } from '../playback.ts';
-import {
-  getCardStorageKey,
-  loadBrowserAudioSettings,
-  loadSelectedSpeed,
-  setStorageItem,
-} from '../storage.ts';
+import { getCardStorageKey, loadSelectedSpeed, setStorageItem } from '../storage.ts';
 
 export interface AudioControllerOptions {
   getConfig: () => AbstpCardConfig | undefined;
@@ -27,8 +21,6 @@ export class AudioController implements ReactiveController {
   public currentSpeed: number = DEFAULT_PLAYBACK_SPEED;
   public volumeLevel: number = DEFAULT_VOLUME_LEVEL;
   public isMuted: boolean = false;
-  public browserVolume: number = DEFAULT_VOLUME_LEVEL;
-  public browserMuted: boolean = false;
 
   public speedHoldTimer: number | null = null;
   public speedHoldInterval: number | null = null;
@@ -51,9 +43,6 @@ export class AudioController implements ReactiveController {
 
   public initSettings(): void {
     const config: AbstpCardConfig | undefined = this.options.getConfig();
-    const { browserMuted, browserVolume } = loadBrowserAudioSettings(config);
-    this.browserVolume = browserVolume;
-    this.browserMuted = browserMuted;
     this.currentSpeed = loadSelectedSpeed(config);
     this.playbackSpeedDirty = false;
   }
@@ -100,42 +89,18 @@ export class AudioController implements ReactiveController {
     }
   }
 
-  public async setVolume(
-    val: number,
-    selectedPlayer: string,
-    hass?: HomeAssistant,
-    browserPlayer?: BrowserAudioPlayer,
-  ): Promise<void> {
+  public async setVolume(val: number, selectedPlayer: string, hass?: HomeAssistant): Promise<void> {
     const roundedVol: number = clampVolume(val);
     this.volumeLevel = roundedVol;
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    if (selectedPlayer === '') {
-      this.browserVolume = roundedVol;
-      if (this.isMuted && roundedVol > 0) {
-        this.isMuted = false;
-        this.browserMuted = false;
-        setStorageItem(getCardStorageKey('browser_muted', config), 'false');
-      }
-      setStorageItem(getCardStorageKey('browser_volume', config), String(roundedVol));
-      browserPlayer?.setVolume(this.isMuted ? 0 : roundedVol);
-    } else if (hass) {
+    if (selectedPlayer && hass) {
       await setSpeakerVolume(hass, selectedPlayer, roundedVol);
     }
     this.host.requestUpdate();
   }
 
-  public async toggleMute(
-    selectedPlayer: string,
-    hass?: HomeAssistant,
-    browserPlayer?: BrowserAudioPlayer,
-  ): Promise<void> {
+  public async toggleMute(selectedPlayer: string, hass?: HomeAssistant): Promise<void> {
     this.isMuted = !this.isMuted;
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    if (selectedPlayer === '') {
-      this.browserMuted = this.isMuted;
-      setStorageItem(getCardStorageKey('browser_muted', config), String(this.browserMuted));
-      browserPlayer?.setVolume(this.isMuted ? 0 : this.volumeLevel);
-    } else if (hass) {
+    if (selectedPlayer && hass) {
       await setSpeakerMute(hass, selectedPlayer, this.isMuted);
     }
     this.host.requestUpdate();
@@ -165,13 +130,6 @@ export class AudioController implements ReactiveController {
     this.host.requestUpdate();
   }
 
-  public syncBrowserSpeed(): void {
-    const config: AbstpCardConfig | undefined = this.options.getConfig();
-    this.currentSpeed = loadSelectedSpeed(config);
-    this.playbackSpeedDirty = false;
-    this.host.requestUpdate();
-  }
-
   public syncSpeakerSpeed(playbackSpeed?: number): void {
     const config: AbstpCardConfig | undefined = this.options.getConfig();
     this.currentSpeed =
@@ -179,13 +137,6 @@ export class AudioController implements ReactiveController {
         ? playbackSpeed
         : (config?.default_speed ?? DEFAULT_PLAYBACK_SPEED);
     this.playbackSpeedDirty = false;
-    this.host.requestUpdate();
-  }
-
-  public syncBrowserVolume(browserPlayer?: BrowserAudioPlayer): void {
-    this.volumeLevel = this.browserVolume;
-    this.isMuted = this.browserMuted;
-    browserPlayer?.setVolume(this.browserMuted ? 0 : this.browserVolume);
     this.host.requestUpdate();
   }
 }

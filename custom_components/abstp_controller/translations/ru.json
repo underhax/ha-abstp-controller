@@ -52,10 +52,15 @@
     "step": {
       "init": {
         "title": "Параметры Audiobookshelf Transcoder Proxy Controller",
-        "description": "Настройка параметров воспроизведения по умолчанию.",
         "data": {
           "default_speed": "Скорость воспроизведения по умолчанию",
+          "stream_proxy_mode": "Режим проксирования аудиопотока",
           "target_players": "Целевые медиаплееры"
+        },
+        "data_description": {
+          "target_players": "Для каждого выбранного устройства создаётся отдельный виртуальный плеер Audiobookshelf.",
+          "default_speed": "Применяется только к новым сессиям.",
+          "stream_proxy_mode": "**Автоматически:** если abstp работает на localhost, потоки для всех плееров, кроме Яндекс Станций, проходят через Home Assistant. Потоки для Яндекс Станций передаются напрямую из abstp. Если abstp доступен не через localhost, потоки для всех плееров передаются напрямую из abstp.\n\n**Всегда:** потоки для всех плееров проходят через Home Assistant.\n\n**Никогда:** потоки для всех плееров передаются напрямую из abstp."
         }
       },
       "friendly_names": {
@@ -64,13 +69,19 @@
       }
     }
   },
+  "selector": {
+    "stream_proxy_mode": {
+      "options": {
+        "auto": "Автоматически",
+        "always": "Всегда",
+        "never": "Никогда"
+      }
+    }
+  },
   "entity": {
     "media_player": {
       "player": {
         "name": "Плеер"
-      },
-      "browser": {
-        "name": "Это устройство"
       }
     },
     "sensor": {

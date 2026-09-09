@@ -7,4 +7,5 @@ export const PLAYBACK_SPEED_STEP: number = 0.05;
 export const SPEED_HOLD_DELAY_MS: number = 350;
 export const SPEED_HOLD_INTERVAL_MS: number = 90;
 export const SPEAKER_TIMER_INTERVAL_MS: number = 1000;
+export const LIBRARY_REFRESH_INTERVAL_MS: number = 60000;
 export const SPEED_PRESETS: number[] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];

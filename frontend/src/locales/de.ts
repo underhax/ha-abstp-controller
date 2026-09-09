@@ -2,7 +2,6 @@ export const de = {
   'card.all': 'Alle',
   'card.author': 'Autor',
   'card.books': 'Hörbücher',
-  'card.browser': 'Dieses Gerät',
   'card.buffering': 'Stream wird gestartet...',
   'card.chapters': 'Kapitel',
   'card.clear_search': 'Suche löschen',

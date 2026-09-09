@@ -2,7 +2,6 @@ export const ru = {
   'card.all': 'Все',
   'card.author': 'Автор',
   'card.books': 'Аудиокниги',
-  'card.browser': 'Это устройство',
   'card.buffering': 'Запуск стрима...',
   'card.chapters': 'Главы',
   'card.clear_search': 'Очистить поиск',

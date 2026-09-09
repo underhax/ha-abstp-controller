@@ -4,7 +4,6 @@ import type {
   HomeAssistant,
   InProgressItem,
   MediaItem,
-  PlaySession,
   PodcastEpisode,
 } from '../types.ts';
 
@@ -23,6 +22,8 @@ export interface ChaptersResponse {
   chapters: ChapterItem[];
 }
 
+export type LibraryUpdateEvent = LibraryResponse;
+
 export interface CardPreferenceEvent {
   available_players: string[];
   available_players_known: boolean;
@@ -35,6 +36,18 @@ export interface CardPreferenceResponse {
   available_players_known: boolean;
   card_id: string;
   selected_player: string | null;
+}
+
+export async function subscribeLibraryUpdates(
+  hass: HomeAssistant,
+  callback: (message: LibraryUpdateEvent) => void,
+): Promise<() => void> {
+  if (!hass.connection) {
+    return (): void => {};
+  }
+  return hass.connection.subscribeMessage<LibraryUpdateEvent>(callback, {
+    type: 'abstp_controller/subscribe_library_updates',
+  });
 }
 
 export async function subscribeCardPreference(
@@ -86,29 +99,6 @@ export async function fetchChapters(
   return hass.callWS<ChaptersResponse>({
     book_id: bookId,
     type: 'abstp_controller/get_chapters',
-  });
-}
-
-export async function startBrowserSession(
-  hass: HomeAssistant,
-  itemId: string,
-  episodeId: string | undefined,
-  speed: number,
-  currentTime: number,
-): Promise<PlaySession> {
-  return hass.callWS<PlaySession>({
-    current_time: currentTime,
-    episode_id: episodeId,
-    item_id: itemId,
-    speed,
-    type: 'abstp_controller/start_session',
-  });
-}
-
-export async function stopBrowserSession(hass: HomeAssistant, sessionId: string): Promise<void> {
-  await hass.callWS({
-    session_id: sessionId,
-    type: 'abstp_controller/stop_session',
   });
 }
 

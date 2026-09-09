@@ -52,10 +52,15 @@
     "step": {
       "init": {
         "title": "Opciones de Audiobookshelf Transcoder Proxy Controller",
-        "description": "Configurar los ajustes de reproducción predeterminados.",
         "data": {
           "default_speed": "Velocidad de reproducción predeterminada",
+          "stream_proxy_mode": "Modo de proxy de transmisión de audio",
           "target_players": "Reproductores multimedia de destino"
+        },
+        "data_description": {
+          "target_players": "Se crea un reproductor virtual de Audiobookshelf independiente para cada dispositivo seleccionado.",
+          "default_speed": "Se aplica solo a las nuevas sesiones de reproducción.",
+          "stream_proxy_mode": "**Automático:** Si abstp se ejecuta en localhost, las transmisiones de todos los reproductores, excepto las Yandex Station, pasan por Home Assistant. Las transmisiones de las Yandex Station se envían directamente desde abstp. Si abstp no está en localhost, las transmisiones de todos los reproductores se envían directamente desde abstp.\n\n**Siempre:** Las transmisiones de todos los reproductores pasan por Home Assistant.\n\n**Nunca:** Las transmisiones de todos los reproductores se envían directamente desde abstp."
         }
       },
       "friendly_names": {
@@ -64,13 +69,19 @@
       }
     }
   },
+  "selector": {
+    "stream_proxy_mode": {
+      "options": {
+        "auto": "Automático",
+        "always": "Siempre",
+        "never": "Nunca"
+      }
+    }
+  },
   "entity": {
     "media_player": {
       "player": {
         "name": "Reproductor"
-      },
-      "browser": {
-        "name": "Este dispositivo"
       }
     },
     "sensor": {

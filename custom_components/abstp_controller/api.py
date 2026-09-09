@@ -14,6 +14,13 @@ REQUEST_TIMEOUT_SECONDS = 15
 class AbstpApiError(Exception):
     """Base exception for abstp client communication errors."""
 
+    status: int | None
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        """Initialize the API error with an optional HTTP status code."""
+        super().__init__(message)
+        self.status = status
+
 
 class AbstpAuthError(AbstpApiError):
     """Authentication or authorization failure when communicating with abstp."""
@@ -138,15 +145,15 @@ class AbstpApiClient:
             ) as response:
                 if response.status in (401, 403):
                     msg = f"Auth failed for {url} with status {response.status}"
-                    raise AbstpAuthError(msg)
+                    raise AbstpAuthError(msg, status=response.status)
                 response.raise_for_status()
                 return cast("object", await response.json())
         except ClientResponseError as err:
             if err.status in (401, 403):
                 msg = f"Authentication failed with status {err.status}"
-                raise AbstpAuthError(msg) from err
+                raise AbstpAuthError(msg, status=err.status) from err
             msg = f"HTTP error {err.status} received from abstp: {err.message}"
-            raise AbstpApiError(msg) from err
+            raise AbstpApiError(msg, status=err.status) from err
         except (ClientError, TimeoutError) as err:
             msg = f"Failed to connect to abstp at {url}: {err}"
             raise AbstpConnectionError(msg) from err

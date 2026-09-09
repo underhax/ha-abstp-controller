@@ -6,11 +6,10 @@ import {
   playOnSpeaker,
   setSpeakerMute,
   setSpeakerVolume,
-  startBrowserSession,
-  stopBrowserSession,
   stopSpeaker,
+  subscribeLibraryUpdates,
 } from '../src/card/api.ts';
-import type { HomeAssistant, PlaySession } from '../src/types.ts';
+import type { HomeAssistant, HomeAssistantConnection } from '../src/types.ts';
 
 describe('fetchLibrary()', (): void => {
   it('requests library data via websocket', async (): Promise<void> => {
@@ -26,6 +25,24 @@ describe('fetchLibrary()', (): void => {
       type: 'abstp_controller/get_library',
     });
     expect(result.books).toEqual([]);
+  });
+});
+
+describe('subscribeLibraryUpdates()', (): void => {
+  it('subscribes to coordinator library updates', async (): Promise<void> => {
+    const unsubscribe = vi.fn();
+    const connection: HomeAssistantConnection = {
+      subscribeMessage: vi.fn().mockResolvedValue(unsubscribe),
+    };
+    const mockHass = { connection } as unknown as HomeAssistant;
+    const callback = vi.fn();
+
+    const result = await subscribeLibraryUpdates(mockHass, callback);
+
+    expect(connection.subscribeMessage).toHaveBeenCalledWith(callback, {
+      type: 'abstp_controller/subscribe_library_updates',
+    });
+    expect(result).toBe(unsubscribe);
   });
 });
 
@@ -60,42 +77,6 @@ describe('fetchChapters()', (): void => {
       type: 'abstp_controller/get_chapters',
     });
     expect(result.chapters).toEqual([]);
-  });
-});
-
-describe('startBrowserSession() and stopBrowserSession()', (): void => {
-  it('initiates browser session with parameters', async (): Promise<void> => {
-    const mockSession: PlaySession = {
-      current_time: 120,
-      duration: 3600,
-      session_id: 'session_1',
-      stream_url: '/stream/test',
-    };
-    const mockHass = {
-      callWS: vi.fn().mockResolvedValue(mockSession),
-    } as unknown as HomeAssistant;
-
-    const session = await startBrowserSession(mockHass, 'item_1', 'ep_1', 1.5, 120);
-    expect(mockHass.callWS).toHaveBeenCalledWith({
-      current_time: 120,
-      episode_id: 'ep_1',
-      item_id: 'item_1',
-      speed: 1.5,
-      type: 'abstp_controller/start_session',
-    });
-    expect(session.session_id).toBe('session_1');
-  });
-
-  it('stops browser session by id', async (): Promise<void> => {
-    const mockHass = {
-      callWS: vi.fn().mockResolvedValue(undefined),
-    } as unknown as HomeAssistant;
-
-    await stopBrowserSession(mockHass, 'session_1');
-    expect(mockHass.callWS).toHaveBeenCalledWith({
-      session_id: 'session_1',
-      type: 'abstp_controller/stop_session',
-    });
   });
 });
 

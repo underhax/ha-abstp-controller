@@ -33,11 +33,13 @@ from custom_components.abstp_controller.const import (
     CONF_API_KEY,
     CONF_DEFAULT_SPEED,
     CONF_PLAYER_FRIENDLY_NAMES,
+    CONF_STREAM_PROXY_MODE,
     CONF_TARGET_PLAYERS,
     CONF_URL,
     DEFAULT_NAME,
     DOMAIN,
-    SOURCE_BROWSER_ID,
+    STREAM_PROXY_MODE_ALWAYS,
+    STREAM_PROXY_MODE_AUTO,
 )
 
 
@@ -168,6 +170,7 @@ async def test_config_flow_user_step_success(hass: HomeAssistant) -> None:
         assert data.get(CONF_API_KEY) == "test_secret_key_12345"
         options = cast("dict[str, object]", result4.get("options", {}))
         assert options.get(CONF_DEFAULT_SPEED) == 1.25
+        assert options.get(CONF_STREAM_PROXY_MODE) == STREAM_PROXY_MODE_AUTO
         assert options.get(CONF_TARGET_PLAYERS) == [
             "media_player.bedroom",
             "media_player.living_room",
@@ -227,50 +230,6 @@ async def test_config_flow_no_target_players(hass: HomeAssistant) -> None:
         assert result2.get("title") == DEFAULT_NAME
         options = cast("dict[str, object]", result2.get("options", {}))
         assert options.get(CONF_TARGET_PLAYERS) == []
-        assert options.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
-
-
-async def test_config_flow_browser_only(hass: HomeAssistant) -> None:
-    """Test config flow when user selects only browser."""
-    with (
-        patch(
-            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
-            new_callable=AsyncMock,
-            return_value=[],
-        ),
-        patch(
-            "custom_components.abstp_controller.async_setup_entry",
-            return_value=True,
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        flow_id = str(result.get("flow_id", ""))
-        async_configure = cast(
-            "Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]",
-            hass.config_entries.flow.async_configure,
-        )
-        _ = await async_configure(
-            flow_id,
-            {
-                CONF_URL: "http://abstp.example.com:8099",
-                CONF_API_KEY: "test_secret_key_12345",
-                CONF_DEFAULT_SPEED: 1.0,
-            },
-        )
-        result2 = await async_configure(
-            flow_id, {CONF_TARGET_PLAYERS: [SOURCE_BROWSER_ID]}
-        )
-        assert result2.get("type") == FlowResultType.CREATE_ENTRY
-        assert result2.get("title") == DEFAULT_NAME
-        options = cast("dict[str, object]", result2.get("options", {}))
-        assert options.get(CONF_TARGET_PLAYERS) == [SOURCE_BROWSER_ID]
         assert options.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
 
 
@@ -335,6 +294,7 @@ async def test_config_flow_options(hass: HomeAssistant) -> None:
         result2 = await handler.async_step_init(
             user_input={
                 CONF_DEFAULT_SPEED: 1.75,
+                CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_ALWAYS,
                 CONF_TARGET_PLAYERS: [
                     "media_player.bedroom",
                     "media_player.living_room",
@@ -353,6 +313,7 @@ async def test_config_flow_options(hass: HomeAssistant) -> None:
         assert result3.get("type") == FlowResultType.CREATE_ENTRY
         data = cast("dict[str, object]", result3.get("data", {}))
         assert data.get(CONF_DEFAULT_SPEED) == 1.75
+        assert data.get(CONF_STREAM_PROXY_MODE) == STREAM_PROXY_MODE_ALWAYS
         assert data.get(CONF_TARGET_PLAYERS) == [
             "media_player.bedroom",
             "media_player.living_room",
@@ -390,8 +351,8 @@ async def test_config_flow_options_empty_targets(hass: HomeAssistant) -> None:
         assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
 
 
-async def test_config_flow_options_browser_only(hass: HomeAssistant) -> None:
-    """Test options flow when only browser is chosen."""
+async def test_config_flow_options_invalid_ids_filtered(hass: HomeAssistant) -> None:
+    """Test options flow filters out non-media_player entity IDs."""
     entry = MagicMock(spec=ConfigEntry)
     entry.options = {}
     entry.data = {CONF_URL: "http://abstp.example.com:8099", CONF_API_KEY: "k"}
@@ -407,20 +368,20 @@ async def test_config_flow_options_browser_only(hass: HomeAssistant) -> None:
         result = await handler.async_step_init(
             user_input={
                 CONF_DEFAULT_SPEED: 1.5,
-                CONF_TARGET_PLAYERS: [SOURCE_BROWSER_ID],
+                CONF_TARGET_PLAYERS: ["invalid_id"],
             }
         )
         assert result.get("type") == FlowResultType.CREATE_ENTRY
         data = cast("dict[str, object]", result.get("data", {}))
         assert data.get(CONF_DEFAULT_SPEED) == 1.5
-        assert data.get(CONF_TARGET_PLAYERS) == [SOURCE_BROWSER_ID]
+        assert data.get(CONF_TARGET_PLAYERS) == []
         assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
 
 
-async def test_config_flow_options_with_browser_and_speaker(
+async def test_config_flow_options_with_single_speaker(
     hass: HomeAssistant,
 ) -> None:
-    """Test options flow with both browser and physical speaker."""
+    """Test options flow with a single physical speaker triggers friendly names."""
     hass.states.async_set(
         "media_player.bedroom",
         "idle",
@@ -444,7 +405,7 @@ async def test_config_flow_options_with_browser_and_speaker(
         result = await handler.async_step_init(
             user_input={
                 CONF_DEFAULT_SPEED: 1.5,
-                CONF_TARGET_PLAYERS: [SOURCE_BROWSER_ID, "media_player.bedroom"],
+                CONF_TARGET_PLAYERS: ["media_player.bedroom"],
             }
         )
         assert result.get("type") == FlowResultType.FORM
@@ -457,7 +418,6 @@ async def test_config_flow_options_with_browser_and_speaker(
         data = cast("dict[str, object]", result2.get("data", {}))
         assert data.get(CONF_DEFAULT_SPEED) == 1.5
         assert data.get(CONF_TARGET_PLAYERS) == [
-            SOURCE_BROWSER_ID,
             "media_player.bedroom",
         ]
         assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {
@@ -558,13 +518,12 @@ def test_get_supported_target_player_ids(hass: HomeAssistant) -> None:
                 "media_player.yandex_station_intents_123",
             ],
             [
-                "browser",
                 "media_player.speaker_1",
                 "media_player.bedroom_tv",
             ],
         ),
         ("media_player.speaker_single", ["media_player.speaker_single"]),
-        ("browser", ["browser"]),
+        ("browser", []),
         (None, []),
         (12345, []),
     ],

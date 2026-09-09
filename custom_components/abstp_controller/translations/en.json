@@ -52,10 +52,15 @@
     "step": {
       "init": {
         "title": "Audiobookshelf Transcoder Proxy Controller Options",
-        "description": "Configure default playback settings.",
         "data": {
           "default_speed": "Default Playback Speed",
+          "stream_proxy_mode": "Audio Stream Proxy Mode",
           "target_players": "Target Media Players"
+        },
+        "data_description": {
+          "target_players": "A dedicated Audiobookshelf virtual player is created for each selected device.",
+          "default_speed": "Applies only to new playback sessions.",
+          "stream_proxy_mode": "**Auto:** If abstp runs on localhost, streams for all players except Yandex Stations pass through Home Assistant. Streams for Yandex Stations are sent directly from abstp. If abstp is not on localhost, streams for all players are sent directly from abstp.\n\n**Always:** Streams for all players pass through Home Assistant.\n\n**Never:** Streams for all players are sent directly from abstp."
         }
       },
       "friendly_names": {
@@ -64,13 +69,19 @@
       }
     }
   },
+  "selector": {
+    "stream_proxy_mode": {
+      "options": {
+        "auto": "Auto",
+        "always": "Always",
+        "never": "Never"
+      }
+    }
+  },
   "entity": {
     "media_player": {
       "player": {
         "name": "Player"
-      },
-      "browser": {
-        "name": "This device"
       }
     },
     "sensor": {

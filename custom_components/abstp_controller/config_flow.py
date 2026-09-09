@@ -15,7 +15,6 @@ from homeassistant.config_entries import (
 from homeassistant.core import State, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.translation import async_get_translations
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -32,6 +31,7 @@ from .const import (
     CONF_API_KEY,
     CONF_DEFAULT_SPEED,
     CONF_PLAYER_FRIENDLY_NAMES,
+    CONF_STREAM_PROXY_MODE,
     CONF_TARGET_PLAYERS,
     CONF_URL,
     DEFAULT_NAME,
@@ -40,8 +40,10 @@ from .const import (
     MAX_SPEED,
     MIN_SPEED,
     PREFIX_VIRTUAL_PLAYER,
-    SOURCE_BROWSER_ID,
     SPEED_STEP,
+    STREAM_PROXY_MODE_ALWAYS,
+    STREAM_PROXY_MODE_AUTO,
+    STREAM_PROXY_MODE_NEVER,
 )
 
 
@@ -60,9 +62,6 @@ def filter_target_player_ids(raw_players: object) -> list[str]:
     for item in player_items:
         entity_id = str(item).strip()
         lower_id = entity_id.lower()
-        if entity_id == SOURCE_BROWSER_ID:
-            result.append(entity_id)
-            continue
         if (
             entity_id.startswith("media_player.")
             and not entity_id.startswith(prefix)
@@ -124,23 +123,6 @@ def get_entity_friendly_name(state: State | None) -> str:
     attributes = cast("Mapping[str, object]", state.attributes)
     name = attributes.get("friendly_name")
     return str(name) if name is not None else ""
-
-
-async def async_get_browser_default_name(hass: HomeAssistant) -> str:
-    """Return localized default name for the browser/local device."""
-    translations = await async_get_translations(
-        hass,
-        hass.config.language,
-        "entity",
-        {DOMAIN},
-    )
-    return translations.get(
-        f"component.{DOMAIN}.entity.media_player.browser.name",
-        translations.get(
-            f"entity.{DOMAIN}.media_player.browser.name",
-            "This device",
-        ),
-    )
 
 
 async def async_validate_api(
@@ -250,7 +232,7 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
             self._target_players = filter_target_player_ids(
                 user_input.get(CONF_TARGET_PLAYERS, [])
             )
-            if any(p != SOURCE_BROWSER_ID for p in self._target_players):
+            if self._target_players:
                 return await self.async_step_friendly_names()
 
             speed = self._user_data.get(CONF_DEFAULT_SPEED, DEFAULT_SPEED)
@@ -259,19 +241,14 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
                 data=self._user_data,
                 options={
                     CONF_DEFAULT_SPEED: speed,
+                    CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_AUTO,
                     CONF_TARGET_PLAYERS: self._target_players,
                     CONF_PLAYER_FRIENDLY_NAMES: {},
                 },
             )
 
-        browser_name = await async_get_browser_default_name(self.hass)
         supported_players = get_supported_target_player_ids(self.hass)
-        options: list[selector.SelectOptionDict] = [
-            selector.SelectOptionDict(
-                value=SOURCE_BROWSER_ID,
-                label=f"{browser_name} ({SOURCE_BROWSER_ID})",
-            ),
-        ]
+        options: list[selector.SelectOptionDict] = []
         for entity_id in supported_players:
             name = get_entity_friendly_name(self.hass.states.get(entity_id))
             short_id = entity_id.removeprefix("media_player.")
@@ -305,14 +282,14 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, object] | None = None
     ) -> ConfigFlowResult:
         """Collect friendly names for selected media player speakers."""
-        physical_players = [p for p in self._target_players if p != SOURCE_BROWSER_ID]
-        if not physical_players:
+        if not self._target_players:
             speed = self._user_data.get(CONF_DEFAULT_SPEED, DEFAULT_SPEED)
             return self.async_create_entry(
                 title=DEFAULT_NAME,
                 data=self._user_data,
                 options={
                     CONF_DEFAULT_SPEED: speed,
+                    CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_AUTO,
                     CONF_TARGET_PLAYERS: self._target_players,
                     CONF_PLAYER_FRIENDLY_NAMES: {},
                 },
@@ -321,7 +298,7 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             names = await async_collect_friendly_names(
                 self.hass,
-                physical_players,
+                self._target_players,
                 user_input,
             )
             speed = self._user_data.get(CONF_DEFAULT_SPEED, DEFAULT_SPEED)
@@ -330,6 +307,7 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
                 data=self._user_data,
                 options={
                     CONF_DEFAULT_SPEED: speed,
+                    CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_AUTO,
                     CONF_TARGET_PLAYERS: self._target_players,
                     CONF_PLAYER_FRIENDLY_NAMES: names,
                 },
@@ -341,7 +319,7 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
         name_selector = text_selector(selector.TextSelectorConfig())
 
         name_schema: dict[vol.Marker, object] = {}
-        for entity_id in physical_players:
+        for entity_id in self._target_players:
             default_name = get_entity_friendly_name(self.hass.states.get(entity_id))
             name_schema[vol.Optional(entity_id, default=default_name)] = name_selector
 
@@ -436,7 +414,7 @@ class AbstpOptionsFlowHandler(OptionsFlow):
                 **user_input,
                 CONF_TARGET_PLAYERS: target_players,
             }
-            if any(p != SOURCE_BROWSER_ID for p in target_players):
+            if target_players:
                 return await self.async_step_friendly_names()
 
             return self.async_create_entry(
@@ -468,28 +446,25 @@ class AbstpOptionsFlowHandler(OptionsFlow):
                 mode=selector.NumberSelectorMode.BOX,
             )
         )
-        browser_name = await async_get_browser_default_name(self.hass)
+        current_proxy_mode = str(
+            options_dict.get(CONF_STREAM_PROXY_MODE, STREAM_PROXY_MODE_AUTO)
+        )
+        if current_proxy_mode not in (
+            STREAM_PROXY_MODE_AUTO,
+            STREAM_PROXY_MODE_ALWAYS,
+            STREAM_PROXY_MODE_NEVER,
+        ):
+            current_proxy_mode = STREAM_PROXY_MODE_AUTO
         supported_players = get_supported_target_player_ids(self.hass)
         raw_list: list[object] = (
             cast("list[object]", current_players)
             if isinstance(current_players, list)
             else []
         )
-        current_list = [
-            str(x)
-            for x in raw_list
-            if str(x) != f"media_player.{PREFIX_VIRTUAL_PLAYER}browser"
-        ]
-        include_list = sorted(
-            {*supported_players, *[p for p in current_list if p != SOURCE_BROWSER_ID]}
-        )
+        current_list = filter_target_player_ids(raw_list)
+        include_list = sorted({*supported_players, *current_list})
 
-        options: list[selector.SelectOptionDict] = [
-            selector.SelectOptionDict(
-                value=SOURCE_BROWSER_ID,
-                label=f"{browser_name} ({SOURCE_BROWSER_ID})",
-            ),
-        ]
+        options: list[selector.SelectOptionDict] = []
         for entity_id in include_list:
             name = get_entity_friendly_name(self.hass.states.get(entity_id))
             short_id = entity_id.removeprefix("media_player.")
@@ -507,17 +482,32 @@ class AbstpOptionsFlowHandler(OptionsFlow):
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         )
+        proxy_mode_selector = select_selector(
+            selector.SelectSelectorConfig(
+                options=[
+                    STREAM_PROXY_MODE_AUTO,
+                    STREAM_PROXY_MODE_ALWAYS,
+                    STREAM_PROXY_MODE_NEVER,
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                translation_key=CONF_STREAM_PROXY_MODE,
+            )
+        )
 
         schema = vol.Schema(
             {
+                vol.Optional(
+                    CONF_TARGET_PLAYERS,
+                    default=current_list,
+                ): players_selector,
                 vol.Optional(
                     CONF_DEFAULT_SPEED,
                     default=current_speed,
                 ): speed_selector,
                 vol.Optional(
-                    CONF_TARGET_PLAYERS,
-                    default=current_list,
-                ): players_selector,
+                    CONF_STREAM_PROXY_MODE,
+                    default=current_proxy_mode,
+                ): proxy_mode_selector,
             }
         )
 
@@ -529,8 +519,7 @@ class AbstpOptionsFlowHandler(OptionsFlow):
         """Collect friendly names for chosen target players."""
         raw_players = self._pending_options.get(CONF_TARGET_PLAYERS, [])
         target_players = filter_target_player_ids(raw_players)
-        physical_players = [p for p in target_players if p != SOURCE_BROWSER_ID]
-        if not physical_players:
+        if not target_players:
             return self.async_create_entry(
                 title="",
                 data={**self._pending_options, CONF_PLAYER_FRIENDLY_NAMES: {}},
@@ -539,7 +528,7 @@ class AbstpOptionsFlowHandler(OptionsFlow):
         if user_input is not None:
             names = await async_collect_friendly_names(
                 self.hass,
-                physical_players,
+                target_players,
                 user_input,
             )
             self._pending_options[CONF_PLAYER_FRIENDLY_NAMES] = names
@@ -559,7 +548,7 @@ class AbstpOptionsFlowHandler(OptionsFlow):
         name_selector = text_selector(selector.TextSelectorConfig())
 
         name_schema: dict[vol.Marker, object] = {}
-        for entity_id in physical_players:
+        for entity_id in target_players:
             raw_name = current_names.get(entity_id)
             default_name = (
                 str(raw_name)

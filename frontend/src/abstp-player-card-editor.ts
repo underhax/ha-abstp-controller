@@ -244,32 +244,27 @@ export class AbstpPlayerCardEditor extends LitElement {
 
   private getMediaPlayers(): string[] {
     if (!this.hass) {
-      return [''];
+      return [];
     }
-    const virtualPlayers: string[] = Object.keys(this.hass.states).filter((id: string): boolean =>
+    return Object.keys(this.hass.states).filter((id: string): boolean =>
       id.startsWith('media_player.abstp_'),
     );
-    return ['', ...virtualPlayers];
   }
 
   private getConfiguredPlayerIds(): string[] {
-    const configuredPlayers: string[] = this.config?.player_entities ?? [];
+    const configuredPlayers: string[] = (this.config?.player_entities ?? []).filter(
+      (id: string): boolean => id !== '',
+    );
     return [...new Set(configuredPlayers)];
   }
 
-  private getPlayerOption(id: string, lang: string): MediaPlayerOption {
-    if (id === '') {
-      return { id: '', name: localize('card.browser', lang) };
-    }
+  private getPlayerOption(id: string, _lang: string): MediaPlayerOption {
     const friendlyName: string | undefined = this.hass?.states[id]?.attributes.friendly_name;
     const name: string = friendlyName ?? id;
     return { id, name };
   }
 
   private static formatPlayerName(option: MediaPlayerOption): string {
-    if (option.id === '') {
-      return option.name;
-    }
     const shortId: string = option.id.replace('media_player.', '');
     return option.name !== option.id ? `${option.name} (${shortId})` : option.id;
   }

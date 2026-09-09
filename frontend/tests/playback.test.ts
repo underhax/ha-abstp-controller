@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calculateBrowserPosition,
   calculateNextSpeed,
   calculateSkipPosition,
   calculateSpeakerProgress,
@@ -121,20 +120,6 @@ describe('calculateSpeakerProgress()', (): void => {
 
   it('clamps to duration when reaching end', (): void => {
     expect(calculateSpeakerProgress(3599.5, 3600, 1.0)).toBe(3600);
-  });
-});
-
-describe('calculateBrowserPosition()', (): void => {
-  it('calculates position based on stream start and audio position with speed', (): void => {
-    expect(calculateBrowserPosition(300, 10, 1.5, 3600)).toBe(315);
-  });
-
-  it('clamps browser position to duration', (): void => {
-    expect(calculateBrowserPosition(3590, 20, 1.0, 3600)).toBe(3600);
-  });
-
-  it('allows unbounded progress when duration is zero', (): void => {
-    expect(calculateBrowserPosition(50, 10, 1.0, 0)).toBe(60);
   });
 });
 

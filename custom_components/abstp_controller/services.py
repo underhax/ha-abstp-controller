@@ -1,6 +1,8 @@
 """Service actions for Audiobookshelf Transcoder Proxy Controller."""
 
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, cast
+from urllib.parse import urlsplit
 
 import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
@@ -25,6 +27,7 @@ from .const import (
     ATTR_SPEED,
     ATTR_TARGET_PLAYER,
     CONF_DEFAULT_SPEED,
+    CONF_STREAM_PROXY_MODE,
     DEFAULT_SPEED,
     DOMAIN,
     LOGGER,
@@ -34,7 +37,9 @@ from .const import (
     SERVICE_REFRESH_LIBRARY,
     SERVICE_SET_SPEED,
     SERVICE_STOP,
-    SOURCE_BROWSER_ID,
+    STREAM_PROXY_MODE_ALWAYS,
+    STREAM_PROXY_MODE_AUTO,
+    STREAM_PROXY_MODE_NEVER,
 )
 
 
@@ -107,7 +112,7 @@ def resolve_media_metadata(
     coordinator_data: AbstpData | None = getattr(coordinator, "data", None)
     if coordinator_data is not None:
         for inp in coordinator_data.in_progress:
-            if inp.id == item_id:
+            if inp.id == item_id and inp.episode_id == episode_id:
                 raw_title = inp.title
                 raw_author = inp.author
                 raw_narrator = inp.narrator or ""
@@ -176,6 +181,69 @@ def resolve_media_metadata(
             cover_url = f"/api/abstp_controller/cover/{item_id}"
 
     return resolved_title, resolved_artist, cover_url
+
+
+def is_loopback_url(url: str) -> bool:
+    """Return whether a URL host resolves exclusively to the local machine."""
+    try:
+        hostname = urlsplit(url).hostname
+    except ValueError:
+        return False
+
+    if hostname is None:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+
+    try:
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def resolve_stream_proxy_mode(
+    options: Mapping[str, object], data: Mapping[str, object]
+) -> str:
+    """Return a supported stream mode while preserving legacy entry compatibility."""
+    mode = str(
+        options.get(
+            CONF_STREAM_PROXY_MODE,
+            data.get(CONF_STREAM_PROXY_MODE, STREAM_PROXY_MODE_AUTO),
+        )
+    )
+    if mode in (
+        STREAM_PROXY_MODE_AUTO,
+        STREAM_PROXY_MODE_ALWAYS,
+        STREAM_PROXY_MODE_NEVER,
+    ):
+        return mode
+    return STREAM_PROXY_MODE_AUTO
+
+
+def should_proxy_stream(
+    proxy_mode: str, backend_url: str, target_entity_id: str
+) -> bool:
+    """Select HA proxying only when the physical player cannot reach abstp directly."""
+    if proxy_mode == STREAM_PROXY_MODE_ALWAYS:
+        return True
+    if proxy_mode == STREAM_PROXY_MODE_NEVER:
+        return False
+    return is_loopback_url(backend_url) and not target_entity_id.startswith(
+        "media_player.yandex_station"
+    )
+
+
+def resolve_proxied_stream_url(
+    hass: HomeAssistant, session_id: str, token: str = ""
+) -> str:
+    """Construct the reachable Home Assistant stream proxy URL for an audio session."""
+    query = f"?token={token}" if token else ""
+    try:
+        base_url = get_url(hass)
+    except NoURLAvailableError:
+        return f"/api/abstp_controller/stream/{session_id}.aac{query}"
+    else:
+        return f"{base_url}/api/abstp_controller/stream/{session_id}.aac{query}"
 
 
 def build_play_media_service_data(
@@ -260,6 +328,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
 
         fallback_speed = DEFAULT_SPEED
+        proxy_mode = STREAM_PROXY_MODE_AUTO
         if coordinator.config_entry is not None:
             opts = cast("Mapping[str, object]", coordinator.config_entry.options)
             entry_data = cast("Mapping[str, object]", coordinator.config_entry.data)
@@ -268,6 +337,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 entry_data.get(CONF_DEFAULT_SPEED, DEFAULT_SPEED),
             )
             fallback_speed = float(str(raw_speed))
+            proxy_mode = resolve_stream_proxy_mode(opts, entry_data)
 
         speed_obj = call_data.get(ATTR_SPEED, fallback_speed)
         speed = float(str(speed_obj))
@@ -288,20 +358,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     target_id,
                     active_session.session_id,
                 )
-                if target_id != SOURCE_BROWSER_ID:
-                    try:
-                        _ = await hass.services.async_call(
-                            "media_player",
-                            "media_stop",
-                            {ATTR_ENTITY_ID: target_id},
-                            blocking=False,
-                        )
-                    except HomeAssistantError as err:
-                        LOGGER.warning(
-                            "Failed to stop target %s before new play: %s",
-                            target_id,
-                            err,
-                        )
+                try:
+                    _ = await hass.services.async_call(
+                        "media_player",
+                        "media_stop",
+                        {ATTR_ENTITY_ID: target_id},
+                        blocking=False,
+                    )
+                except HomeAssistantError as err:
+                    LOGGER.warning(
+                        "Failed to stop target %s before new play: %s",
+                        target_id,
+                        err,
+                    )
                 _ = await tracker.async_stop_session_for_entity(target_id)
                 LOGGER.debug(
                     "Existing session stopped before play: context=%s target=%s",
@@ -330,13 +399,30 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 episode_id=episode_id,
                 speed=speed,
                 initial_position=session.current_time,
+                stream_url=session.stream_url,
             )
-
+            token = tracker.get_stream_token(session.session_id) or ""
+            use_proxy = should_proxy_stream(
+                proxy_mode,
+                str(coordinator.client.base_url),
+                target_id,
+            )
+            stream_url = (
+                resolve_proxied_stream_url(hass, session.session_id, token)
+                if use_proxy
+                else session.stream_url
+            )
+            LOGGER.debug(
+                "Audio stream route: mode=%s target=%s route=%s",
+                proxy_mode,
+                target_id,
+                "home_assistant_proxy" if use_proxy else "direct_abstp",
+            )
             service_data = build_play_media_service_data(
                 hass=hass,
                 coordinator=coordinator,
                 entity_id=target_id,
-                stream_url=session.stream_url,
+                stream_url=stream_url,
                 item_id=item_id,
                 episode_id=episode_id,
             )
@@ -469,13 +555,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             episode_id=episode_id,
             speed=new_speed,
             initial_position=current_position,
+            stream_url=new_session.stream_url,
         )
-
+        token = tracker.get_stream_token(new_session.session_id) or ""
+        config_entry = coordinator.config_entry
+        proxy_mode = (
+            resolve_stream_proxy_mode(
+                cast("Mapping[str, object]", config_entry.options),
+                cast("Mapping[str, object]", config_entry.data),
+            )
+            if config_entry is not None
+            else STREAM_PROXY_MODE_AUTO
+        )
+        use_proxy = should_proxy_stream(
+            proxy_mode,
+            str(coordinator.client.base_url),
+            entity_id,
+        )
+        stream_url = (
+            resolve_proxied_stream_url(hass, new_session.session_id, token)
+            if use_proxy
+            else new_session.stream_url
+        )
+        LOGGER.debug(
+            "Audio stream route: mode=%s target=%s route=%s",
+            proxy_mode,
+            entity_id,
+            "home_assistant_proxy" if use_proxy else "direct_abstp",
+        )
         service_data = build_play_media_service_data(
             hass=hass,
             coordinator=coordinator,
             entity_id=entity_id,
-            stream_url=new_session.stream_url,
+            stream_url=stream_url,
             item_id=item_id,
             episode_id=episode_id,
         )

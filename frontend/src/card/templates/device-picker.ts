@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from 'lit-html';
-import { browserIcon, chevronDownIcon, speakerIcon } from '../../icons.ts';
+import { chevronDownIcon, speakerIcon } from '../../icons.ts';
 import { localize } from '../../localize.ts';
 import type { AbstpCardConfig, HassEntity, HomeAssistant } from '../../types.ts';
 
@@ -19,7 +19,7 @@ export function renderPlayerIcon(
   entityId?: string,
 ): TemplateResult {
   if (!entity && !entityId) {
-    return browserIcon;
+    return speakerIcon;
   }
   const id: string = (entityId ?? entity?.entity_id ?? '').toLowerCase();
   const entityAttrs = entity?.attributes as
@@ -64,9 +64,6 @@ export function resolveDeviceSubtitle(
   ) {
     return localize('card.unavailable', lang);
   }
-  if (id === '') {
-    return 'HTML5 Audio';
-  }
   const targetPlayer: string | undefined = entity?.attributes.target_player as string | undefined;
   const targetId: string = targetPlayer ?? id;
   const lowerId: string = targetId.toLowerCase();
@@ -87,19 +84,14 @@ export function renderSpeakerMenuItem(
   selectedPlayer: string,
   onSelectPlayer: (id: string) => void | Promise<void>,
 ): TemplateResult {
-  const isBrowser: boolean = id === '';
-  const entity: HassEntity | undefined = isBrowser ? undefined : hass?.states[id];
-  const friendlyName: string = isBrowser
-    ? localize('card.browser', lang)
-    : (entity?.attributes.friendly_name ?? id);
-  const isUnavailable: boolean =
-    !isBrowser &&
-    Boolean(
-      entity &&
-        (entity.state === 'unavailable' ||
-          entity.state === 'unknown' ||
-          entity.attributes.target_available === false),
-    );
+  const entity: HassEntity | undefined = hass?.states[id];
+  const friendlyName: string = entity?.attributes.friendly_name ?? id;
+  const isUnavailable: boolean = Boolean(
+    entity &&
+      (entity.state === 'unavailable' ||
+        entity.state === 'unknown' ||
+        entity.attributes.target_available === false),
+  );
   const isSelected: boolean = selectedPlayer === id;
   const subtitle: string = resolveDeviceSubtitle(id, entity, lang);
 
@@ -112,7 +104,7 @@ export function renderSpeakerMenuItem(
         }
       }}
     >
-      ${isBrowser ? browserIcon : renderPlayerIcon(entity, id)}
+      ${renderPlayerIcon(entity, id)}
       <div class="device-item-info">
         <span class="device-item-name">${friendlyName}</span>
         ${subtitle ? html`<span class="device-item-area">${subtitle}</span>` : html``}
@@ -144,19 +136,14 @@ export function renderDevicePicker(context: DevicePickerContext): TemplateResult
     return html``;
   }
   const isSingleConfigured: boolean = allowedSpeakers.length <= 1;
-  const isBrowser: boolean = context.selectedPlayer === '';
-  const currentEntity: HassEntity | undefined = isBrowser
-    ? undefined
-    : context.hass?.states[context.selectedPlayer];
-  const currentName: string = isBrowser
-    ? localize('card.browser', context.lang)
-    : (currentEntity?.attributes.friendly_name ?? context.selectedPlayer);
+  const currentEntity: HassEntity | undefined = context.hass?.states[context.selectedPlayer];
+  const currentName: string = currentEntity?.attributes.friendly_name ?? context.selectedPlayer;
 
   if (isSingleConfigured) {
     return html`
       <div class="device-picker-row">
         <div class="device-badge device-badge-btn" title="${currentName}">
-          ${isBrowser ? browserIcon : renderPlayerIcon(currentEntity, context.selectedPlayer)}
+          ${renderPlayerIcon(currentEntity, context.selectedPlayer)}
           <span class="device-name">${currentName}</span>
         </div>
       </div>
@@ -170,7 +157,7 @@ export function renderDevicePicker(context: DevicePickerContext): TemplateResult
         @click=${(): void => context.onToggleDeviceMenu()}
         title="${localize('card.target_device', context.lang)}"
       >
-        ${isBrowser ? browserIcon : renderPlayerIcon(currentEntity, context.selectedPlayer)}
+        ${renderPlayerIcon(currentEntity, context.selectedPlayer)}
         <span class="device-name">${currentName}</span>
         ${chevronDownIcon}
       </div>
@@ -200,8 +187,8 @@ export function filterAvailablePlayers(
     id.startsWith('media_player.abstp_'),
   );
   if (config?.player_entities && config.player_entities.length > 0) {
-    const allowed: string[] = config.player_entities.filter(
-      (id: string): boolean => id === '' || id.startsWith('media_player.abstp_'),
+    const allowed: string[] = config.player_entities.filter((id: string): boolean =>
+      id.startsWith('media_player.abstp_'),
     );
     return [...new Set(allowed)];
   }
@@ -212,5 +199,5 @@ export function filterAvailablePlayers(
     return [...playerOrder, ...extraPlayers];
   }
 
-  return ['', ...allPlayers];
+  return allPlayers;
 }

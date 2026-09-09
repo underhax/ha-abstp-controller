@@ -43,17 +43,6 @@ export function calculateSpeakerProgress(
   return Math.min(duration > 0 ? duration : currentPosition + step, currentPosition + step);
 }
 
-export function calculateBrowserPosition(
-  streamStartPos: number,
-  currentAudioPos: number,
-  speed: number,
-  duration: number,
-): number {
-  const effectiveSpeed: number = speed > 0 ? speed : DEFAULT_PLAYBACK_SPEED;
-  const calculatedPos: number = streamStartPos + currentAudioPos * effectiveSpeed;
-  return Math.min(duration > 0 ? duration : calculatedPos, calculatedPos);
-}
-
 export function clampVolume(volume: number): number {
   return Math.round(Math.min(1.0, Math.max(0.0, volume)) * 10) / 10;
 }

@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_PLAYBACK_SPEED, DEFAULT_VOLUME_LEVEL } from '../src/card/constants.ts';
+import { DEFAULT_PLAYBACK_SPEED } from '../src/card/constants.ts';
 import {
   getCardStorageKey,
   getCardStorageScope,
   getStorageItem,
-  loadBrowserAudioSettings,
   loadSelectedSpeed,
   setStorageItem,
 } from '../src/card/storage.ts';
@@ -71,33 +70,6 @@ describe('getCardStorageKey()', (): void => {
   it('formats card storage key with scope prefix', (): void => {
     const key = getCardStorageKey('volume', { card_id: 'card_bed' });
     expect(key).toBe('abstp_card_bed_volume');
-  });
-});
-
-describe('loadBrowserAudioSettings()', (): void => {
-  beforeEach((): void => {
-    storageMock.clear();
-  });
-
-  it('loads default values when nothing is stored', (): void => {
-    const settings = loadBrowserAudioSettings();
-    expect(settings.browserVolume).toBe(DEFAULT_VOLUME_LEVEL);
-    expect(settings.browserMuted).toBe(false);
-  });
-
-  it('loads and parses stored volume and muted status', (): void => {
-    setStorageItem('abstp_default_browser_volume', '0.7');
-    setStorageItem('abstp_default_browser_muted', 'true');
-
-    const settings = loadBrowserAudioSettings();
-    expect(settings.browserVolume).toBe(0.7);
-    expect(settings.browserMuted).toBe(true);
-  });
-
-  it('ignores invalid volume numbers and keeps default', (): void => {
-    setStorageItem('abstp_default_browser_volume', 'invalid');
-    const settings = loadBrowserAudioSettings();
-    expect(settings.browserVolume).toBe(DEFAULT_VOLUME_LEVEL);
   });
 });
 

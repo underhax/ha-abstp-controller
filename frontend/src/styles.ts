@@ -1038,7 +1038,8 @@ export const cardStyles: CSSResult = css`
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 2px 0 6px 0;
+    padding: 0px;
+    margin: -15px 0px;
   }
 
   .podcast-header-title {

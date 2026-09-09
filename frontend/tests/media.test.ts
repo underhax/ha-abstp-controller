@@ -402,6 +402,37 @@ describe('findSavedItem()', (): void => {
     expect(findSavedItem('pod_3', inProgress, books, podcasts)?.id).toBe('pod_3');
     expect(findSavedItem('unknown', inProgress, books, podcasts)).toBeUndefined();
   });
+
+  it('matches podcast progress by item and episode identifiers', (): void => {
+    const podcastProgress: InProgressItem[] = [
+      {
+        author: 'Host',
+        cover_url: '',
+        current_time: 100,
+        duration: 1000,
+        episode_id: 'episode_1',
+        id: 'podcast_1',
+        media_type: 'podcast',
+        progress: 100,
+        title: 'Episode One',
+      },
+      {
+        author: 'Host',
+        cover_url: '',
+        current_time: 200,
+        duration: 1000,
+        episode_id: 'episode_2',
+        id: 'podcast_1',
+        media_type: 'podcast',
+        progress: 200,
+        title: 'Episode Two',
+      },
+    ];
+
+    const item = findSavedItem('podcast_1', podcastProgress, books, podcasts, 'episode_2');
+
+    expect(item).toEqual(expect.objectContaining({ current_time: 200, episode_id: 'episode_2' }));
+  });
 });
 
 describe('filterInProgress(), filterBooks() and filterPodcasts()', (): void => {

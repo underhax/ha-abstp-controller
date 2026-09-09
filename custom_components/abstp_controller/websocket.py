@@ -26,18 +26,14 @@ from .const import (
     CONF_TARGET_PLAYERS,
     DOMAIN,
     LOGGER,
-    MAX_SPEED,
-    MIN_SPEED,
     PREFIX_VIRTUAL_PLAYER,
-    SOURCE_BROWSER_ID,
 )
 from .preferences import async_get_card_preference_store
 
 WS_TYPE_GET_LIBRARY = f"{DOMAIN}/get_library"
 WS_TYPE_GET_EPISODES = f"{DOMAIN}/get_episodes"
 WS_TYPE_GET_CHAPTERS = f"{DOMAIN}/get_chapters"
-WS_TYPE_START_SESSION = f"{DOMAIN}/start_session"
-WS_TYPE_STOP_SESSION = f"{DOMAIN}/stop_session"
+WS_TYPE_SUBSCRIBE_LIBRARY_UPDATES = f"{DOMAIN}/subscribe_library_updates"
 WS_TYPE_SUBSCRIBE_CARD_PREFERENCE = f"{DOMAIN}/subscribe_card_preference"
 WS_TYPE_SET_CARD_PREFERENCE = f"{DOMAIN}/set_card_preference"
 CARD_ID_SCHEMA = vol.All(str, vol.Length(min=1, max=255))
@@ -77,11 +73,6 @@ def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
         target_list = cast("list[object]", raw_targets)
         for raw_target in target_list:
             target_id = str(raw_target).strip()
-            if target_id == SOURCE_BROWSER_ID:
-                if "" not in seen_ids:
-                    ordered_ids.append("")
-                    seen_ids.add("")
-                continue
             if target_id.startswith("media_player."):
                 target_slug = target_id.removeprefix("media_player.")
                 virtual_id = f"media_player.{PREFIX_VIRTUAL_PLAYER}{target_slug}"
@@ -102,6 +93,81 @@ def _get_active_tracker(hass: HomeAssistant) -> SessionTracker | None:
             if isinstance(data, dict) and "tracker" in data:
                 return cast("SessionTracker", data["tracker"])
     return None
+
+
+def build_library_data(
+    hass: HomeAssistant,
+    coordinator: AbstpDataUpdateCoordinator,
+) -> dict[str, object]:
+    """Serialize the latest ABS snapshot and active sessions for card clients."""
+    books_data = [
+        {
+            "id": book.id,
+            "title": book.title,
+            "author": book.author,
+            "narrator": book.narrator,
+            "media_type": book.media_type,
+            "cover_url": f"/api/abstp_controller/cover/{book.id}"
+            if book.cover_url
+            else "",
+            "duration": book.duration,
+            "progress": book.progress,
+            "is_finished": book.is_finished,
+        }
+        for book in coordinator.data.books
+    ]
+    podcasts_data = [
+        {
+            "id": podcast.id,
+            "title": podcast.title,
+            "author": podcast.author,
+            "media_type": podcast.media_type,
+            "cover_url": f"/api/abstp_controller/cover/{podcast.id}"
+            if podcast.cover_url
+            else "",
+            "duration": podcast.duration,
+            "progress": podcast.progress,
+            "is_finished": podcast.is_finished,
+        }
+        for podcast in coordinator.data.podcasts
+    ]
+    in_progress_data = [
+        {
+            "id": item.id,
+            "title": item.title,
+            "author": item.author,
+            "media_type": item.media_type,
+            "cover_url": f"/api/abstp_controller/cover/{item.id}"
+            if item.cover_url
+            else "",
+            "duration": item.duration,
+            "progress": item.progress,
+            "current_time": item.current_time,
+            "episode_id": item.episode_id,
+            "episode_title": item.episode_title,
+            "narrator": item.narrator,
+        }
+        for item in coordinator.data.in_progress
+    ]
+    tracker = _get_active_tracker(hass)
+    active_sessions_data: dict[str, dict[str, object]] = {}
+    if tracker:
+        for entity_id, session in tracker.get_all_active_sessions().items():
+            active_sessions_data[entity_id] = {
+                "entity_id": session.entity_id,
+                "session_id": session.session_id,
+                "item_id": session.item_id,
+                "episode_id": session.episode_id,
+                "speed": session.speed,
+                "current_time": tracker.estimate_current_position(entity_id),
+            }
+    return {
+        "healthy": coordinator.data.healthy,
+        "books": books_data,
+        "podcasts": podcasts_data,
+        "in_progress": in_progress_data,
+        "active_sessions": active_sessions_data,
+    }
 
 
 @callback
@@ -126,79 +192,36 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
 
         await coordinator.async_request_refresh()
 
-        books_data = [
-            {
-                "id": b.id,
-                "title": b.title,
-                "author": b.author,
-                "narrator": b.narrator,
-                "media_type": b.media_type,
-                "cover_url": f"/api/abstp_controller/cover/{b.id}"
-                if b.cover_url
-                else "",
-                "duration": b.duration,
-                "progress": b.progress,
-                "is_finished": b.is_finished,
-            }
-            for b in coordinator.data.books
-        ]
-        podcasts_data = [
-            {
-                "id": p.id,
-                "title": p.title,
-                "author": p.author,
-                "media_type": p.media_type,
-                "cover_url": f"/api/abstp_controller/cover/{p.id}"
-                if p.cover_url
-                else "",
-                "duration": p.duration,
-                "progress": p.progress,
-                "is_finished": p.is_finished,
-            }
-            for p in coordinator.data.podcasts
-        ]
-        in_progress_data = [
-            {
-                "id": item.id,
-                "title": item.title,
-                "author": item.author,
-                "media_type": item.media_type,
-                "cover_url": f"/api/abstp_controller/cover/{item.id}"
-                if item.cover_url
-                else "",
-                "duration": item.duration,
-                "progress": item.progress,
-                "current_time": item.current_time,
-                "episode_id": item.episode_id,
-                "episode_title": item.episode_title,
-                "narrator": item.narrator,
-            }
-            for item in coordinator.data.in_progress
-        ]
+        connection.send_result(msg_id, build_library_data(hass_inst, coordinator))
 
-        tracker = _get_active_tracker(hass_inst)
-        active_sessions_data: dict[str, dict[str, object]] = {}
-        if tracker:
-            for entity_id, sess in tracker.get_all_active_sessions().items():
-                active_sessions_data[entity_id] = {
-                    "entity_id": sess.entity_id,
-                    "session_id": sess.session_id,
-                    "item_id": sess.item_id,
-                    "episode_id": sess.episode_id,
-                    "speed": sess.speed,
-                    "current_time": tracker.estimate_current_position(entity_id),
-                }
+    @websocket_command({vol.Required("type"): WS_TYPE_SUBSCRIBE_LIBRARY_UPDATES})
+    @async_response
+    async def ws_subscribe_library_updates(
+        hass_inst: HomeAssistant,
+        connection: ActiveConnection,
+        msg: dict[str, object],
+    ) -> None:
+        """Push coordinator updates to a connected card without polling it again."""
+        coordinator = _get_active_coordinator(hass_inst)
+        msg_id = cast("int", msg["id"])
+        if not coordinator:
+            connection.send_error(
+                msg_id, "not_loaded", "Integration not ready or loaded"
+            )
+            return
 
-        connection.send_result(
-            msg_id,
-            {
-                "healthy": coordinator.data.healthy,
-                "books": books_data,
-                "podcasts": podcasts_data,
-                "in_progress": in_progress_data,
-                "active_sessions": active_sessions_data,
-            },
+        @callback
+        def handle_coordinator_update() -> None:
+            """Forward the latest ABS snapshot through this subscription."""
+            connection.send_message(
+                event_message(msg_id, build_library_data(hass_inst, coordinator))
+            )
+
+        coordinator_unsubscribe = coordinator.async_add_listener(
+            handle_coordinator_update
         )
+        connection.subscriptions[msg_id] = coordinator_unsubscribe
+        connection.send_result(msg_id, {})
 
     @websocket_command(
         {
@@ -441,120 +464,9 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             LOGGER.exception("Failed to fetch chapters for %s", book_id)
             connection.send_error(msg_id, "fetch_failed", str(err))
 
-    @websocket_command(
-        {
-            vol.Required("type"): WS_TYPE_START_SESSION,
-            vol.Required("item_id"): str,
-            vol.Optional("episode_id"): vol.Any(str, None),
-            vol.Optional("speed", default=1.0): vol.All(
-                vol.Coerce(float), vol.Range(min=MIN_SPEED, max=MAX_SPEED)
-            ),
-            vol.Optional("current_time", default=0.0): vol.Coerce(float),
-        }
-    )
-    @async_response
-    async def ws_start_session(
-        hass_inst: HomeAssistant,
-        connection: ActiveConnection,
-        msg: dict[str, object],
-    ) -> None:
-        """Handle starting an audio streaming session."""
-        coordinator = _get_active_coordinator(hass_inst)
-        msg_id = cast("int", msg["id"])
-        if not coordinator:
-            connection.send_error(
-                msg_id, "not_loaded", "Integration not ready or loaded"
-            )
-            return
-
-        try:
-            LOGGER.debug(
-                "Browser start: connection=%s item=%s episode=%s position=%s",
-                id(connection),
-                msg["item_id"],
-                msg.get("episode_id"),
-                msg.get("current_time", 0.0),
-            )
-            session = await coordinator.client.async_start_session(
-                item_id=str(msg["item_id"]),
-                episode_id=cast("str | None", msg.get("episode_id")),
-                speed=float(cast("float | int", msg.get("speed", 1.0))),
-                current_time=float(cast("float | int", msg.get("current_time", 0.0))),
-            )
-            tracker = _get_active_tracker(hass_inst)
-            if tracker:
-                tracker.register_session(
-                    entity_id=SOURCE_BROWSER_ID,
-                    session_id=session.session_id,
-                    item_id=str(msg["item_id"]),
-                    episode_id=cast("str | None", msg.get("episode_id")),
-                    speed=float(cast("float | int", msg.get("speed", 1.0))),
-                    initial_position=session.current_time,
-                )
-            _ = hass_inst.async_create_task(coordinator.async_request_refresh())
-            LOGGER.debug(
-                "Browser session started: connection=%s session=%s item=%s",
-                id(connection),
-                session.session_id,
-                msg["item_id"],
-            )
-            connection.send_result(
-                msg_id,
-                {
-                    "session_id": session.session_id,
-                    "stream_url": session.stream_url,
-                    "current_time": session.current_time,
-                    "duration": session.duration,
-                },
-            )
-        except (AbstpApiError, HomeAssistantError) as err:
-            LOGGER.exception("Failed to start session via websocket")
-            connection.send_error(msg_id, "session_start_failed", str(err))
-
-    @websocket_command(
-        {
-            vol.Required("type"): WS_TYPE_STOP_SESSION,
-            vol.Required("session_id"): str,
-        }
-    )
-    @async_response
-    async def ws_stop_session(
-        hass_inst: HomeAssistant,
-        connection: ActiveConnection,
-        msg: dict[str, object],
-    ) -> None:
-        """Handle terminating an audio streaming session."""
-        tracker = _get_active_tracker(hass_inst)
-        coordinator = _get_active_coordinator(hass_inst)
-        session_id = str(msg["session_id"])
-        msg_id = cast("int", msg["id"])
-
-        try:
-            LOGGER.debug(
-                "Browser session stop request: connection=%s session=%s",
-                id(connection),
-                session_id,
-            )
-            if tracker:
-                _ = await tracker.async_stop_session_by_id(session_id)
-            elif coordinator:
-                _ = await coordinator.client.async_stop_session(session_id)
-            if coordinator:
-                await coordinator.async_request_refresh()
-            LOGGER.debug(
-                "Browser session stopped: connection=%s session=%s",
-                id(connection),
-                session_id,
-            )
-            connection.send_result(msg_id, {"status": "stopped"})
-        except (AbstpApiError, HomeAssistantError) as err:
-            LOGGER.exception("Failed to stop session %s", session_id)
-            connection.send_error(msg_id, "session_stop_failed", str(err))
-
     async_register_command(hass, ws_get_library)
+    async_register_command(hass, ws_subscribe_library_updates)
     async_register_command(hass, ws_subscribe_card_preference)
     async_register_command(hass, ws_set_card_preference)
     async_register_command(hass, ws_get_episodes)
     async_register_command(hass, ws_get_chapters)
-    async_register_command(hass, ws_start_session)
-    async_register_command(hass, ws_stop_session)

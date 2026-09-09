@@ -15,7 +15,6 @@ const createIcon = (name: string): TemplateResult => {
 export const audiobookIcon: TemplateResult = createIcon('audiobook');
 export const audiobookshelfIcon: TemplateResult = createIcon('audiobookshelf');
 export const authorIcon: TemplateResult = createIcon('author');
-export const browserIcon: TemplateResult = createIcon('browser');
 export const chaptersIcon: TemplateResult = createIcon('chapters');
 export const chevronDownIcon: TemplateResult = createIcon('chevron-down');
 export const clearIcon: TemplateResult = createIcon('clear');

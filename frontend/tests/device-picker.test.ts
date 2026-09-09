@@ -10,7 +10,7 @@ import {
 import type { HassEntity, HomeAssistant } from '../src/types.ts';
 
 describe('renderPlayerIcon()', (): void => {
-  it('renders browser icon when entity and entityId are absent', (): void => {
+  it('renders speaker icon when entity and entityId are absent', (): void => {
     const result: TemplateResult = renderPlayerIcon(undefined, undefined);
     expect(result).toBeDefined();
   });
@@ -86,10 +86,6 @@ describe('resolveDeviceSubtitle()', (): void => {
     expect(resolveDeviceSubtitle('media_player.speaker', entity, 'en')).toBe('Unavailable');
   });
 
-  it('returns HTML5 Audio subtitle for browser identifiers', (): void => {
-    expect(resolveDeviceSubtitle('', undefined, 'ru')).toBe('HTML5 Audio');
-  });
-
   it('returns Chromecast subtitle for cast identifiers', (): void => {
     expect(resolveDeviceSubtitle('media_player.chromecast_ultra', undefined, 'en')).toBe(
       'Chromecast',
@@ -126,7 +122,7 @@ describe('filterAvailablePlayers()', (): void => {
 
     expect(
       filterAvailablePlayers(mockHass, { player_entities: [], type: 'custom:abstp-player-card' }),
-    ).toEqual(['', 'media_player.abstp_z', 'media_player.abstp_a']);
+    ).toEqual(['media_player.abstp_z', 'media_player.abstp_a']);
   });
 
   it('preserves explicit card player order', (): void => {
@@ -149,27 +145,6 @@ describe('filterAvailablePlayers()', (): void => {
         type: 'custom:abstp-player-card',
       }),
     ).toEqual(['media_player.abstp_a', 'media_player.abstp_z']);
-  });
-
-  it('respects playerOrder positioning when browser is included', (): void => {
-    const mockHass = {
-      states: Object.fromEntries([
-        [
-          'media_player.abstp_z',
-          { attributes: {}, entity_id: 'media_player.abstp_z', state: 'idle' },
-        ],
-        [
-          'media_player.abstp_a',
-          { attributes: {}, entity_id: 'media_player.abstp_a', state: 'idle' },
-        ],
-      ]),
-    } as unknown as HomeAssistant;
-
-    expect(filterAvailablePlayers(mockHass, undefined, ['media_player.abstp_a', ''])).toEqual([
-      'media_player.abstp_a',
-      '',
-      'media_player.abstp_z',
-    ]);
   });
 
   it('respects playerOrder when browser is excluded from integration', (): void => {
@@ -224,13 +199,16 @@ describe('renderDevicePicker()', (): void => {
     const selectFn = vi.fn();
 
     const context: DevicePickerContext = {
-      allowedPlayers: ['', 'media_player.hall'],
-      config: { player_entities: ['', 'media_player.hall'], type: 'custom:abstp-player-card' },
+      allowedPlayers: ['media_player.kitchen', 'media_player.hall'],
+      config: {
+        player_entities: ['media_player.kitchen', 'media_player.hall'],
+        type: 'custom:abstp-player-card',
+      },
       hass: mockHass,
       lang: 'en',
       onSelectPlayer: selectFn,
       onToggleDeviceMenu: toggleFn,
-      selectedPlayer: '',
+      selectedPlayer: 'media_player.kitchen',
       showDeviceMenu: true,
     };
 

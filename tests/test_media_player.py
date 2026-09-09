@@ -394,7 +394,7 @@ async def test_async_setup_entry_updates_existing_entities_registry_properties(
 @pytest.mark.parametrize(
     ("target_raw_state", "expected_player_state"),
     [
-        (STATE_PLAYING, MediaPlayerState.PLAYING),
+        (STATE_PLAYING, MediaPlayerState.IDLE),
         (STATE_PAUSED, MediaPlayerState.IDLE),
         (STATE_OFF, MediaPlayerState.OFF),
         (STATE_IDLE, MediaPlayerState.IDLE),
@@ -553,6 +553,106 @@ async def test_virtual_player_metadata_with_active_session(
     assert attrs["target_available"] is True
     assert attrs["item_id"] == "book_1"
     assert attrs[ATTR_PLAYBACK_SPEED] == 1.0
+
+
+async def test_idle_virtual_player_syncs_selected_abs_progress(
+    hass: HomeAssistant,
+    mock_books: list[MediaItem],
+    mock_podcasts: list[MediaItem],
+    mock_in_progress: list[InProgressItem],
+) -> None:
+    """Test idle facade retains its item while refreshing progress from ABS."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=mock_books,
+        podcasts=mock_podcasts,
+        in_progress=mock_in_progress,
+    )
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_idle_sync"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set(
+        "media_player.speaker",
+        STATE_PLAYING,
+        {"media_position": 17.0, "media_title": "External radio"},
+    )
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    for attr, value in (("_item_id", "book_1"), ("_attr_media_position", 17)):
+        setattr(player, attr, value)
+    _attach_player_to_hass(player, hass)
+
+    assert player.state == MediaPlayerState.IDLE
+    assert player.media_title == "Dune • Frank Herbert"
+    assert player.media_position == 1200
+    assert player.media_duration == 36000
+
+
+async def test_idle_virtual_player_matches_podcast_episode_progress(
+    hass: HomeAssistant,
+) -> None:
+    """Test idle facade updates only the retained podcast episode from ABS."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=[],
+        podcasts=[],
+        in_progress=[
+            InProgressItem(
+                id="podcast_1",
+                title="Podcast",
+                author="Host",
+                media_type="podcast",
+                current_time=100.0,
+                duration=1000.0,
+                progress=100.0,
+                episode_id="episode_1",
+                episode_title="Episode One",
+            ),
+            InProgressItem(
+                id="podcast_1",
+                title="Podcast",
+                author="Host",
+                media_type="podcast",
+                current_time=200.0,
+                duration=1000.0,
+                progress=200.0,
+                episode_id="episode_2",
+                episode_title="Episode Two",
+            ),
+        ],
+    )
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_episode_sync"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set("media_player.speaker", STATE_IDLE)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    for attr, value in (("_item_id", "podcast_1"), ("_episode_id", "episode_2")):
+        setattr(player, attr, value)
+    _attach_player_to_hass(player, hass)
+
+    assert player.media_title == "Episode Two"
+    assert player.media_position == 200
 
 
 async def test_virtual_player_metadata_fallback_to_target_entity(
@@ -909,8 +1009,8 @@ async def test_virtual_player_stop_error_handled(hass: HomeAssistant) -> None:
         mock_stop.assert_called_once_with("media_player.tv")
 
 
-async def test_virtual_player_media_source_routing(hass: HomeAssistant) -> None:
-    """Test playing media-source URIs parses book and episode IDs."""
+async def test_virtual_player_library_routing(hass: HomeAssistant) -> None:
+    """Test playing player-local library IDs parses book and episode IDs."""
     client = MagicMock(spec=AbstpApiClient)
     client.base_url = "http://abstp.example.com:8099"
     coordinator = AbstpDataUpdateCoordinator(hass, client)
@@ -932,18 +1032,14 @@ async def test_virtual_player_media_source_routing(hass: HomeAssistant) -> None:
 
     custom_play_calls = _mock_service(hass, DOMAIN, "play")
 
-    await player.async_play_media(
-        "music", "media-source://abstp_controller/book/book_99"
-    )
+    await player.async_play_media("music", "book/book_99")
     assert len(custom_play_calls) == 1
     assert custom_play_calls[0].data == {
         ATTR_ENTITY_ID: "media_player.speaker",
         "item_id": "book_99",
     }
 
-    await player.async_play_media(
-        "music", "media-source://abstp_controller/episode/pod_1/ep_2"
-    )
+    await player.async_play_media("music", "episode/pod_1/ep_2")
     assert len(custom_play_calls) == 2
     assert custom_play_calls[1].data == {
         ATTR_ENTITY_ID: "media_player.speaker",
@@ -951,9 +1047,17 @@ async def test_virtual_player_media_source_routing(hass: HomeAssistant) -> None:
         "episode_id": "ep_2",
     }
 
+    await player.async_play_media("music", "in_progress/pod_3/ep_4")
+    assert len(custom_play_calls) == 3
+    assert custom_play_calls[2].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        "item_id": "pod_3",
+        "episode_id": "ep_4",
+    }
+
 
 async def test_virtual_player_browse_media(hass: HomeAssistant) -> None:
-    """Test async_browse_media delegates to media_source."""
+    """Test async_browse_media opens the Audiobookshelf library root."""
     client = MagicMock(spec=AbstpApiClient)
     client.base_url = "http://abstp.example.com:8099"
     coordinator = AbstpDataUpdateCoordinator(hass, client)
@@ -973,12 +1077,15 @@ async def test_virtual_player_browse_media(hass: HomeAssistant) -> None:
     )
     _attach_player_to_hass(player, hass)
 
-    with patch(
-        "custom_components.abstp_controller.media_player.media_source.async_browse_media",
-        new_callable=AsyncMock,
-    ) as mock_browse:
-        _ = await player.async_browse_media("music", "media-source://abstp_controller")
-        mock_browse.assert_called_once()
+    browser = await player.async_browse_media()
+
+    assert browser.title == "Audiobookshelf"
+    assert browser.media_content_id == ""
+    assert [child.media_content_id for child in browser.children or []] == [
+        "continue_listening",
+        "audiobooks",
+        "podcasts",
+    ]
 
 
 async def test_virtual_player_lifecycle_and_restore(hass: HomeAssistant) -> None:

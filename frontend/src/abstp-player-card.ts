@@ -3,10 +3,16 @@ import { type CSSResult, LitElement } from 'lit-element/lit-element.js';
 import { html, type TemplateResult } from 'lit-html';
 import {
   type CardPreferenceEvent,
+  type LibraryUpdateEvent,
   setCardPreference,
   subscribeCardPreference,
+  subscribeLibraryUpdates,
 } from './card/api.ts';
-import { DEFAULT_PLAYBACK_SPEED, DEFAULT_SKIP_SECONDS } from './card/constants.ts';
+import {
+  DEFAULT_PLAYBACK_SPEED,
+  DEFAULT_SKIP_SECONDS,
+  LIBRARY_REFRESH_INTERVAL_MS,
+} from './card/constants.ts';
 import { AudioController } from './card/controllers/audio-controller.ts';
 import { LibraryController } from './card/controllers/library-controller.ts';
 import { PlaybackController } from './card/controllers/playback-controller.ts';
@@ -45,6 +51,9 @@ export class AbstpPlayerCard extends LitElement {
   private _prevShowChapters: boolean = false;
   private _prevChaptersCount: number = 0;
   private cardPreferenceUnsubscribe: (() => void) | null = null;
+  private libraryUpdateUnsubscribe: (() => void) | null = null;
+  private libraryUpdateConnection: HomeAssistantConnection | undefined;
+  private libraryRefreshInterval: number | null = null;
   private cardPreferenceConnection: HomeAssistantConnection | undefined;
   private cardPreferenceId: string = '';
   private cardPlayerOrder: string[] = [];
@@ -113,11 +122,7 @@ export class AbstpPlayerCard extends LitElement {
           }
         }
       },
-      onPageHide: (): void => {
-        if (this.playback.isBrowserPlayer()) {
-          void this.playback.stop();
-        }
-      },
+      onPageHide: (): void => {},
     });
   }
 
@@ -168,6 +173,7 @@ export class AbstpPlayerCard extends LitElement {
     }
     if (changedProps.has('config')) {
       void this.ensureCardPreferenceSubscription();
+      void this.ensureLibraryUpdateSubscription();
       void this.reconcileCardPreference();
     }
     if (!changedProps.has('hass')) {
@@ -175,6 +181,7 @@ export class AbstpPlayerCard extends LitElement {
     }
     if (!this.library.libraryLoaded) {
       this.library.libraryLoaded = true;
+      void this.ensureLibraryUpdateSubscription();
       if (!this.config?.card_id || !this.hass.connection) {
         void this.library.fetchLibrary();
       } else {
@@ -182,6 +189,7 @@ export class AbstpPlayerCard extends LitElement {
       }
     } else {
       void this.ensureCardPreferenceSubscription();
+      void this.ensureLibraryUpdateSubscription();
     }
     this.playback.syncPlayerState();
     void this.reconcileCardPreference();
@@ -201,12 +209,11 @@ export class AbstpPlayerCard extends LitElement {
     const filteredInProgress: InProgressItem[] = this.library.getFilteredInProgress();
     const filteredBooks: MediaItem[] = this.library.getFilteredBooks();
     const filteredPodcasts: MediaItem[] = this.library.getFilteredPodcasts();
-    const playerEntity = this.playback.isBrowserPlayer()
-      ? undefined
-      : this.hass?.states[this.playback.selectedPlayer];
+    const playerEntity = this.playback.selectedPlayer
+      ? this.hass?.states[this.playback.selectedPlayer]
+      : undefined;
     const isTargetUnavailable: boolean =
       Boolean(this.hass) &&
-      !this.playback.isBrowserPlayer() &&
       (!playerEntity ||
         playerEntity.state === 'unavailable' ||
         playerEntity.state === 'unknown' ||
@@ -232,8 +239,57 @@ export class AbstpPlayerCard extends LitElement {
 
   private async initializeCardState(): Promise<void> {
     const libraryPromise: Promise<void> = this.library.fetchLibrary();
-    await this.ensureCardPreferenceSubscription();
+    await Promise.all([
+      this.ensureCardPreferenceSubscription(),
+      this.ensureLibraryUpdateSubscription(),
+    ]);
     await libraryPromise;
+  }
+
+  private async ensureLibraryUpdateSubscription(): Promise<void> {
+    const hass: HomeAssistant | undefined = this.hass;
+    const connection: HomeAssistantConnection | undefined = hass?.connection;
+    if (!hass || !connection || this.libraryUpdateConnection === connection) {
+      return;
+    }
+    this.libraryUpdateUnsubscribe?.();
+    this.libraryUpdateUnsubscribe = null;
+    this.libraryUpdateConnection = connection;
+    try {
+      const unsubscribe: () => void = await subscribeLibraryUpdates(
+        hass,
+        (message: LibraryUpdateEvent): void => this.library.applyLibraryUpdate(message),
+      );
+      if (this.hass?.connection !== connection) {
+        unsubscribe();
+        return;
+      }
+      this.libraryUpdateUnsubscribe = unsubscribe;
+    } catch {
+      this.libraryUpdateConnection = undefined;
+    }
+  }
+
+  private refreshLibraryInBackground(): void {
+    if (this.playback.isPlaybackActive() || this.library.isFetchingLibrary) {
+      return;
+    }
+    void this.library.fetchLibrary(true);
+  }
+
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.refreshLibraryInBackground();
+    }
+  };
+
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.libraryRefreshInterval = window.setInterval(
+      (): void => this.refreshLibraryInBackground(),
+      LIBRARY_REFRESH_INTERVAL_MS,
+    );
   }
 
   private async ensureCardPreferenceSubscription(): Promise<void> {
@@ -375,6 +431,14 @@ export class AbstpPlayerCard extends LitElement {
   public override disconnectedCallback(): void {
     this.cardPreferenceUnsubscribe?.();
     this.cardPreferenceUnsubscribe = null;
+    this.libraryUpdateUnsubscribe?.();
+    this.libraryUpdateUnsubscribe = null;
+    this.libraryUpdateConnection = undefined;
+    if (this.libraryRefreshInterval !== null) {
+      window.clearInterval(this.libraryRefreshInterval);
+      this.libraryRefreshInterval = null;
+    }
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.cardPreferenceConnection = undefined;
     this.cardPreferenceId = '';
     this.cardPlayerOrder = [];
@@ -438,17 +502,12 @@ export class AbstpPlayerCard extends LitElement {
       },
       onToggleLibrary: (): void => this.ui.toggleLibrary(),
       onToggleMute: (): Promise<void> =>
-        this.audio.toggleMute(this.playback.selectedPlayer, this.hass, this.playback.engine.player),
+        this.audio.toggleMute(this.playback.selectedPlayer, this.hass),
       onTogglePlayPause: (): void => this.playback.togglePlayPause(),
       onToggleSpeedPopover: (): void => this.ui.toggleSpeedPopover(this.audio.currentSpeed),
       onToggleVolumePopover: (): void => this.ui.toggleVolumePopover(),
       onVolumeChange: (val: number): Promise<void> =>
-        this.audio.setVolume(
-          val,
-          this.playback.selectedPlayer,
-          this.hass,
-          this.playback.engine.player,
-        ),
+        this.audio.setVolume(val, this.playback.selectedPlayer, this.hass),
       playbackDuration: this.playback.playbackDuration,
       playbackPosition: this.playback.playbackPosition,
       showChapters: this.ui.showChapters,

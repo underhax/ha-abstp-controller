@@ -58,20 +58,6 @@ describe('AbstpPlayerCard', (): void => {
     expect(unsubscribe).not.toHaveBeenCalled();
   });
 
-  it('stops browser playback when the page hides', (): void => {
-    const card: AbstpPlayerCard = new AbstpPlayerCard();
-    const isBrowserPlayerSpy = vi.spyOn(card.playback, 'isBrowserPlayer').mockReturnValue(true);
-    const stopSpy = vi.spyOn(card.playback, 'stop').mockResolvedValue(undefined);
-
-    document.body.appendChild(card);
-    window.dispatchEvent(new Event('pagehide'));
-
-    expect(isBrowserPlayerSpy).toHaveBeenCalled();
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-
-    document.body.removeChild(card);
-  });
-
   it('applies backend preference before all player states load', (): void => {
     const card: AbstpPlayerCard = new AbstpPlayerCard();
     card.setConfig({ card_id: 'card-id', type: 'custom:abstp-player-card' });
