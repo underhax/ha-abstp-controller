@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, override
 
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ class AbstpEntity(CoordinatorEntity[AbstpDataUpdateCoordinator]):
     """Common base entity providing device registry binding and coordinator updates."""
 
     _attr_has_entity_name: bool = True
-    _attr_device_info: DeviceInfo | None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None
     _entry: ConfigEntry
 
     def __init__(

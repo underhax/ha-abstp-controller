@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -83,7 +83,7 @@ class AbstpSensor(SensorEntity):
     entity_description: SensorEntityDescription
     _attr_has_entity_name: bool = True
     _attr_unique_id: str | None = None
-    _attr_device_info: DeviceInfo | None = None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None = None
     _attr_native_value: StateType | date | datetime | Decimal = None
     _attr_available: bool = True
 

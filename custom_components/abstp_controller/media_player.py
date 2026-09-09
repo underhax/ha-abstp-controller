@@ -27,7 +27,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import async_get
@@ -109,7 +109,7 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
     _attr_name: str | None
     _attr_translation_key: str | None = None
     _attr_device_class: MediaPlayerDeviceClass | None = MediaPlayerDeviceClass.SPEAKER
-    _attr_device_info: DeviceInfo | None = None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None = None
     _attr_unique_id: str | None = None
     _attr_supported_features: MediaPlayerEntityFeature = (
         MediaPlayerEntityFeature.PLAY

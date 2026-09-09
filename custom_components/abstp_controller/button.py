@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast, override
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -38,7 +38,7 @@ class AbstpRefreshLibraryButton(ButtonEntity):
     _attr_icon: str | None = "mdi:refresh"
     _attr_entity_category: EntityCategory | None = EntityCategory.DIAGNOSTIC
     _attr_unique_id: str | None = None
-    _attr_device_info: DeviceInfo | None = None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None = None
     _attr_available: bool = True
 
     def __init__(

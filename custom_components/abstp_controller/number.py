@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast, override
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -54,7 +54,7 @@ class AbstpDefaultSpeedNumber(NumberEntity):
     _attr_mode: NumberMode = NumberMode.SLIDER
     _attr_entity_category: EntityCategory | None = EntityCategory.CONFIG
     _attr_unique_id: str | None = None
-    _attr_device_info: DeviceInfo | None = None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None = None
     _attr_native_value: float | None = None
     _attr_available: bool = True
 
