@@ -1,9 +1,11 @@
 """Unit tests for abstp custom services."""
 
+import logging
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.network import NoURLAvailableError
@@ -18,6 +20,8 @@ from custom_components.abstp_controller.api import (
     PlaySession,
 )
 from custom_components.abstp_controller.const import (
+    ATTR_SESSION_ID,
+    ATTR_TARGET_PLAYER,
     CONF_DEFAULT_SPEED,
     CONF_STREAM_PROXY_MODE,
     DOMAIN,
@@ -34,10 +38,12 @@ from custom_components.abstp_controller.coordinator import (
     AbstpDataUpdateCoordinator,
 )
 from custom_components.abstp_controller.services import (
+    PLAY_SCHEMA,
     async_setup_services,
     async_unload_services,
     build_play_media_service_data,
     clean_header_value,
+    is_loopback_url,
     resolve_media_metadata,
     resolve_proxied_stream_url,
     resolve_stream_proxy_mode,
@@ -59,6 +65,53 @@ from custom_components.abstp_controller.tracker import SessionTracker
 def test_clean_header_value(input_value: str | None, expected: str) -> None:
     """Test whitespace collapsing and control character normalization."""
     assert clean_header_value(input_value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("media_player.speaker", ("media_player.speaker",)),
+        (
+            ["media_player.speaker", "media_player.living_room"],
+            ("media_player.speaker", "media_player.living_room"),
+        ),
+    ],
+)
+def test_play_schema_normalizes_entity_ids(
+    value: object, expected: tuple[str, ...]
+) -> None:
+    """Test play service schema normalizes entity identifiers."""
+    normalized = cast(
+        "dict[str, object]", PLAY_SCHEMA({"entity_id": value, "item_id": "book_1"})
+    )
+    assert tuple(cast("list[str]", normalized["entity_id"])) == expected
+
+
+async def test_play_schema_rejects_unsupported_entity_ids_type(
+    hass: HomeAssistant,
+) -> None:
+    """Test play service schema rejects unsupported entity id types."""
+    await async_setup_services(hass)
+    with pytest.raises(vol.Invalid):
+        _ = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_PLAY,
+            {"entity_id": 42, "item_id": "book_1"},
+            blocking=True,
+        )
+    await async_unload_services(hass)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::1",
+        "file:///etc/hosts",
+    ],
+)
+def test_is_loopback_url_false_without_resolvable_hostname(url: str) -> None:
+    """Test loopback detection does not crash on unusual URLs."""
+    assert is_loopback_url(url) is False
 
 
 @pytest.mark.parametrize(
@@ -700,4 +753,372 @@ async def test_services_stop_feature_fallback(
         media_stop_mock.assert_not_called()
         media_pause_mock.assert_not_called()
 
+    await async_unload_services(hass)
+
+
+async def test_services_log_missing_entries_on_play(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test play service reports when no active integration entries are loaded."""
+    hass.data[DOMAIN] = {}
+    await async_setup_services(hass)
+
+    with caplog.at_level(logging.ERROR, logger="custom_components.abstp_controller"):
+        _ = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_PLAY,
+            {"entity_id": ["media_player.speaker"], "item_id": "book_1"},
+            blocking=True,
+        )
+
+    assert "No active abstp integration entries loaded" in caplog.text
+    await async_unload_services(hass)
+
+
+async def test_services_log_missing_entry_components_on_play(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test play service reports when entry data lacks coordinator and tracker."""
+    hass.data[DOMAIN] = {"test_entry_id": "not-a-dict"}
+    await async_setup_services(hass)
+
+    with caplog.at_level(logging.ERROR, logger="custom_components.abstp_controller"):
+        _ = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_PLAY,
+            {"entity_id": ["media_player.speaker"], "item_id": "book_1"},
+            blocking=True,
+        )
+
+    assert "No active abstp integration entries loaded" in caplog.text
+    await async_unload_services(hass)
+
+
+async def test_services_return_when_no_active_entry_components(
+    hass: HomeAssistant,
+) -> None:
+    """Test stop and set_speed services no-op without active entry components."""
+    hass.data[DOMAIN] = {}
+    await async_setup_services(hass)
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_STOP,
+        {"entity_id": ["media_player.speaker"]},
+        blocking=True,
+    )
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_SET_SPEED,
+        {"entity_id": "media_player.speaker", "speed": 1.5},
+        blocking=True,
+    )
+
+    assert hass.services.has_service(DOMAIN, SERVICE_STOP)
+    assert hass.services.has_service(DOMAIN, SERVICE_SET_SPEED)
+    await async_unload_services(hass)
+
+
+async def test_services_play_resolves_target_player_from_state(
+    hass: HomeAssistant,
+) -> None:
+    """Test play service forwards playback to the resolved target player."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.base_url = "https://abstp.example.com"
+    client.async_start_session = AsyncMock(
+        return_value=PlaySession(
+            session_id="sess_target",
+            stream_url="https://abstp.example.com/stream/sess_target.aac",
+            current_time=0.0,
+            duration=3600.0,
+        )
+    )
+    config_entry = MagicMock(spec=ConfigEntry)
+    config_entry.options = {}
+    config_entry.data = {}
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.config_entry = config_entry
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    play_media_mock = AsyncMock()
+    hass.services.async_register("media_player", "play_media", play_media_mock)
+    hass.states.async_set(
+        "media_player.virtual_bedroom",
+        "playing",
+        {ATTR_TARGET_PLAYER: "media_player.bedroom"},
+    )
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_PLAY,
+        {
+            "entity_id": ["media_player.virtual_bedroom"],
+            "item_id": "book_1",
+        },
+        blocking=True,
+    )
+
+    play_call = cast("ServiceCall", play_media_mock.call_args[0][0])
+    assert play_call.data["entity_id"] == "media_player.bedroom"
+    assert tracker.get_active_session("media_player.bedroom") is not None
+
+    _ = await tracker.async_stop_session_for_entity("media_player.bedroom")
+    await async_unload_services(hass)
+
+
+async def test_services_play_stops_existing_active_session(
+    hass: HomeAssistant,
+) -> None:
+    """Test play service stops an existing session for the same target."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.base_url = "https://abstp.example.com"
+    client.async_start_session = AsyncMock(
+        return_value=PlaySession(
+            session_id="sess_new",
+            stream_url="https://abstp.example.com/stream/sess_new.aac",
+            current_time=0.0,
+            duration=3600.0,
+        )
+    )
+    config_entry = MagicMock(spec=ConfigEntry)
+    config_entry.options = {}
+    config_entry.data = {}
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.config_entry = config_entry
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.speaker",
+        session_id="sess_old",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=10.0,
+    )
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    play_media_mock = AsyncMock()
+    media_stop_mock = AsyncMock()
+    hass.services.async_register("media_player", "play_media", play_media_mock)
+    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    hass.states.async_set("media_player.speaker", "playing")
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_PLAY,
+        {"entity_id": ["media_player.speaker"], "item_id": "book_1"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    media_stop_mock.assert_called()
+    active_session = tracker.get_active_session("media_player.speaker")
+    assert active_session is not None
+    assert active_session.session_id == "sess_new"
+    assert active_session.item_id == "book_1"
+
+    _ = await tracker.async_stop_session_for_entity("media_player.speaker")
+    await async_unload_services(hass)
+
+
+async def test_services_play_warns_when_stopping_existing_session_fails(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test play service logs a warning when stopping the old session fails."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.base_url = "https://abstp.example.com"
+    client.async_start_session = AsyncMock(
+        return_value=PlaySession(
+            session_id="sess_new_fail",
+            stream_url="https://abstp.example.com/stream/sess_new_fail.aac",
+            current_time=0.0,
+            duration=3600.0,
+        )
+    )
+    config_entry = MagicMock(spec=ConfigEntry)
+    config_entry.options = {}
+    config_entry.data = {}
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.config_entry = config_entry
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.speaker",
+        session_id="sess_old_fail",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=10.0,
+    )
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    play_media_mock = AsyncMock()
+    hass.services.async_register("media_player", "play_media", play_media_mock)
+    hass.states.async_set("media_player.speaker", "playing")
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.abstp_controller"):
+        _ = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_PLAY,
+            {"entity_id": ["media_player.speaker"], "item_id": "book_1"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
+    assert "Failed to stop target media_player.speaker" in caplog.text
+    assert tracker.get_active_session("media_player.speaker") is not None
+
+    _ = await tracker.async_stop_session_for_entity("media_player.speaker")
+    await async_unload_services(hass)
+
+
+async def test_services_stop_resolves_target_player_from_state(
+    hass: HomeAssistant,
+) -> None:
+    """Test stop service terminates the resolved target player session."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.async_stop_session = AsyncMock(return_value=True)
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.bedroom",
+        session_id="sess_target_stop",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=20.0,
+    )
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    hass.states.async_set(
+        "media_player.virtual_bedroom",
+        "playing",
+        {
+            ATTR_TARGET_PLAYER: "media_player.bedroom",
+            "supported_features": int(MediaPlayerEntityFeature.STOP),
+        },
+    )
+    hass.states.async_set(
+        "media_player.bedroom",
+        "playing",
+        {"supported_features": int(MediaPlayerEntityFeature.STOP)},
+    )
+    media_stop_mock = AsyncMock()
+    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_STOP,
+        {"entity_id": ["media_player.virtual_bedroom"]},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert tracker.get_active_session("media_player.bedroom") is None
+    assert (
+        cast("ServiceCall", media_stop_mock.call_args[0][0]).data["entity_id"]
+        == "media_player.bedroom"
+    )
+    await async_unload_services(hass)
+
+
+async def test_services_stop_by_session_id(hass: HomeAssistant) -> None:
+    """Test stop service terminates a session by proxy session identifier."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.async_stop_session = AsyncMock(return_value=True)
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.speaker",
+        session_id="sess_by_id",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=30.0,
+    )
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_STOP,
+        {ATTR_SESSION_ID: "sess_by_id"},
+        blocking=True,
+    )
+
+    assert tracker.get_active_session("media_player.speaker") is None
+    cast("AsyncMock", client.async_stop_session).assert_awaited()
+    await async_unload_services(hass)
+
+
+async def test_services_set_speed_without_active_session_logs_warning(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test set_speed service warns when no active session exists."""
+    client = AsyncMock(spec=AbstpApiClient)
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    tracker = SessionTracker(hass, client)
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.abstp_controller"):
+        _ = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_SPEED,
+            {"entity_id": "media_player.speaker", "speed": 1.5},
+            blocking=True,
+        )
+
+    assert "No active session found for entity media_player.speaker" in caplog.text
+    await async_unload_services(hass)
+
+
+async def test_services_refresh_library_requests_coordinator_refresh(
+    hass: HomeAssistant,
+) -> None:
+    """Test refresh_library service triggers coordinator refresh for each entry."""
+    coordinator = AsyncMock(spec=AbstpDataUpdateCoordinator)
+    refresh_mock = cast("AsyncMock", coordinator.async_request_refresh)
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator},
+    }
+    await async_setup_services(hass)
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_REFRESH_LIBRARY,
+        {},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    refresh_mock.assert_awaited()
     await async_unload_services(hass)

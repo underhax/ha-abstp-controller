@@ -22,6 +22,7 @@ from custom_components.abstp_controller.api import (
     AbstpConnectionError,
 )
 from custom_components.abstp_controller.config_flow import (
+    AbstpConfigFlow,
     AbstpOptionsFlowHandler,
     async_collect_friendly_names,
     async_validate_api,
@@ -40,6 +41,7 @@ from custom_components.abstp_controller.const import (
     DOMAIN,
     STREAM_PROXY_MODE_ALWAYS,
     STREAM_PROXY_MODE_AUTO,
+    STREAM_PROXY_MODE_NEVER,
 )
 
 
@@ -780,3 +782,200 @@ async def test_reconfigure_flow_errors(
     assert result2.get("type") == FlowResultType.FORM
     errors = cast("dict[str, str]", result2.get("errors", {}))
     assert errors.get("base") == expected_error
+
+
+async def test_config_flow_friendly_names_empty_players(
+    hass: HomeAssistant,
+) -> None:
+    """Create entry immediately when friendly_names is invoked with no players."""
+    flow = AbstpConfigFlow()
+    flow.hass = hass
+    with (
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_health",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "custom_components.abstp_controller.config_flow.AbstpApiClient.async_get_books",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch.object(
+            flow,
+            "async_set_unique_id",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        _ = await flow.async_step_user(
+            {
+                CONF_URL: "http://abstp.example.com:8099",
+                CONF_API_KEY: "test_secret_key_12345",
+                CONF_DEFAULT_SPEED: 1.5,
+            }
+        )
+        _ = await flow.async_step_players({CONF_TARGET_PLAYERS: []})
+        result = await flow.async_step_friendly_names()
+    assert result.get("type") == FlowResultType.CREATE_ENTRY
+    assert result.get("title") == DEFAULT_NAME
+    options = cast("dict[str, object]", result.get("options", {}))
+    assert options.get(CONF_DEFAULT_SPEED) == 1.5
+    assert options.get(CONF_TARGET_PLAYERS) == []
+    assert options.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
+
+
+def test_async_get_options_flow() -> None:
+    """Verify async_get_options_flow returns an AbstpOptionsFlowHandler."""
+    entry = MagicMock(spec=ConfigEntry)
+    handler = AbstpConfigFlow.async_get_options_flow(entry)
+    assert isinstance(handler, AbstpOptionsFlowHandler)
+
+
+async def test_options_flow_invalid_proxy_mode_reset(
+    hass: HomeAssistant,
+) -> None:
+    """Reset invalid proxy mode to auto when displaying options form."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.options = {CONF_STREAM_PROXY_MODE: "invalid_mode"}
+    entry.data = {
+        CONF_URL: "http://abstp.example.com:8099",
+        CONF_API_KEY: "k",
+    }
+
+    handler = AbstpOptionsFlowHandler()
+    handler.hass = hass
+
+    with patch(
+        "custom_components.abstp_controller.config_flow.AbstpOptionsFlowHandler.config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ):
+        result = await handler.async_step_init()
+        assert result.get("type") == FlowResultType.FORM
+        assert result.get("step_id") == "init"
+
+
+async def test_options_flow_init_shows_registered_players(
+    hass: HomeAssistant,
+) -> None:
+    """Verify options init form includes registered media players."""
+    hass.states.async_set(
+        "media_player.kitchen",
+        "idle",
+        {
+            "friendly_name": "Kitchen Speaker",
+            "supported_features": int(MediaPlayerEntityFeature.PLAY_MEDIA),
+        },
+    )
+    entry = MagicMock(spec=ConfigEntry)
+    entry.options = {
+        CONF_TARGET_PLAYERS: ["media_player.kitchen"],
+        CONF_DEFAULT_SPEED: 1.0,
+        CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_NEVER,
+    }
+    entry.data = {
+        CONF_URL: "http://abstp.example.com:8099",
+        CONF_API_KEY: "k",
+    }
+
+    handler = AbstpOptionsFlowHandler()
+    handler.hass = hass
+
+    with patch(
+        "custom_components.abstp_controller.config_flow.AbstpOptionsFlowHandler.config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ):
+        result = await handler.async_step_init()
+        assert result.get("type") == FlowResultType.FORM
+        assert result.get("step_id") == "init"
+
+
+async def test_options_flow_init_empty_players_creates_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Create entry directly in async_step_init when no players are selected."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.options = {}
+    entry.data = {
+        CONF_URL: "http://abstp.example.com:8099",
+        CONF_API_KEY: "k",
+    }
+
+    handler = AbstpOptionsFlowHandler()
+    handler.hass = hass
+
+    with patch(
+        "custom_components.abstp_controller.config_flow.AbstpOptionsFlowHandler.config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ):
+        result = await handler.async_step_init(
+            user_input={
+                CONF_DEFAULT_SPEED: 1.0,
+                CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_AUTO,
+                CONF_TARGET_PLAYERS: [],
+            }
+        )
+        assert result.get("type") == FlowResultType.CREATE_ENTRY
+        data = cast("dict[str, object]", result.get("data", {}))
+        assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
+
+
+async def test_options_flow_friendly_names_empty_target_players(
+    hass: HomeAssistant,
+) -> None:
+    """Create entry directly when friendly_names step has no target players."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.options = {}
+    entry.data = {
+        CONF_URL: "http://abstp.example.com:8099",
+        CONF_API_KEY: "k",
+    }
+
+    handler = AbstpOptionsFlowHandler()
+    handler.hass = hass
+
+    with patch(
+        "custom_components.abstp_controller.config_flow.AbstpOptionsFlowHandler.config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ):
+        result = await handler.async_step_init(
+            {
+                CONF_DEFAULT_SPEED: 1.0,
+                CONF_STREAM_PROXY_MODE: STREAM_PROXY_MODE_AUTO,
+                CONF_TARGET_PLAYERS: [],
+            }
+        )
+        assert result.get("type") == FlowResultType.CREATE_ENTRY
+        data = cast("dict[str, object]", result.get("data", {}))
+        assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {}
+        assert data.get(CONF_TARGET_PLAYERS) == []
+
+
+async def test_options_flow_friendly_names_filtered_out_players(
+    hass: HomeAssistant,
+) -> None:
+    """Create entry when friendly_names receives players filtered out by prefix."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.options = {}
+    entry.data = {
+        CONF_URL: "http://abstp.example.com:8099",
+        CONF_API_KEY: "k",
+    }
+
+    handler = AbstpOptionsFlowHandler()
+    handler.hass = hass
+
+    with patch(
+        "custom_components.abstp_controller.config_flow.AbstpOptionsFlowHandler.config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ):
+        result = await handler.async_step_friendly_names()
+
+    assert result.get("type") == FlowResultType.CREATE_ENTRY
+    data = cast("dict[str, object]", result.get("data", {}))
+    assert data.get(CONF_PLAYER_FRIENDLY_NAMES) == {}

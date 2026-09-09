@@ -1,18 +1,22 @@
 """Unit tests for integration lifecycle setup and unloading."""
 
+import asyncio
 from typing import TYPE_CHECKING, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+import pytest
 from aiohttp import ClientError, web
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.network import NoURLAvailableError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable, Coroutine
 
     from homeassistant.core import HomeAssistant
 
 from custom_components.abstp_controller import (
     AbstpCoverView,
+    AbstpStaticResource,
     AbstpStreamView,
     async_remove_entry,
     async_setup_entry,
@@ -25,6 +29,7 @@ from custom_components.abstp_controller.const import (
     CONF_URL,
     DOMAIN,
 )
+from custom_components.abstp_controller.preferences import CardPreferenceStore
 from custom_components.abstp_controller.tracker import SessionTracker
 
 
@@ -39,7 +44,8 @@ async def test_async_setup_and_unload_entry(hass: HomeAssistant) -> None:
         CONF_DEFAULT_SPEED: 1.25,
     }
     entry.options = {CONF_DEFAULT_SPEED: 1.25}
-    entry.add_update_listener = MagicMock()
+    mock_add_listener = MagicMock()
+    entry.add_update_listener = mock_add_listener
     entry.async_on_unload = MagicMock()
 
     with (
@@ -69,6 +75,16 @@ async def test_async_setup_and_unload_entry(hass: HomeAssistant) -> None:
         assert result is True
         assert DOMAIN in hass.data
         assert entry_id in hass.data[DOMAIN]
+
+        update_listener = cast(
+            "Callable[[HomeAssistant, ConfigEntry], Coroutine[object, object, None]]",
+            mock_add_listener.call_args[0][0],
+        )
+        with patch.object(
+            hass.config_entries, "async_reload", new_callable=AsyncMock
+        ) as mock_reload:
+            await update_listener(hass, entry)
+            mock_reload.assert_awaited_once_with(entry_id)
 
         unload_result = await async_unload_entry(hass, entry)
         assert unload_result is True
@@ -437,3 +453,406 @@ async def test_register_static_path_idempotent(hass: HomeAssistant) -> None:
         register_static_path(hass)
         reg_res_mock.assert_called_once_with(mock_resource)
         assert reg_view_mock.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected_cors"),
+    [
+        ("http://internal.example.com", True),
+        ("https://external.example.com", True),
+        ("http://base.example.com", True),
+        ("http://direct.example.com", True),
+        ("https://untrusted.example.org", False),
+    ],
+)
+async def test_resolve_cors_headers_origins(
+    hass: HomeAssistant, origin: str, expected_cors: bool
+) -> None:
+    """Validate CORS header resolution against internal, external, and base URLs."""
+    hass.config.internal_url = "http://internal.example.com"
+    hass.config.external_url = "https://external.example.com"
+    hass.data[DOMAIN] = {}
+    view = AbstpCoverView()
+    request = MagicMock(spec=web.Request)
+    request.app = {"hass": hass}
+    request.headers = {"Origin": origin}
+    request.host = "direct.example.com"
+    with patch(
+        "custom_components.abstp_controller.get_url",
+        return_value="http://base.example.com",
+    ):
+        resp = await view.get(request, "book_1")
+        if expected_cors:
+            assert resp.headers.get("Access-Control-Allow-Origin") == origin
+        else:
+            assert "Access-Control-Allow-Origin" not in resp.headers
+
+
+async def test_abstp_static_resource_handle() -> None:
+    """Verify that AbstpStaticResource attaches revalidation cache control headers."""
+    resource = AbstpStaticResource("/prefix", "/tmp")
+    route = next(iter(resource))
+    request = MagicMock(spec=web.Request)
+    fake_response = web.Response()
+    with patch.object(
+        web.StaticResource,
+        "_handle",
+        new_callable=AsyncMock,
+        return_value=fake_response,
+    ) as mock_super_handle:
+        result = await route.handler(request)
+        mock_super_handle.assert_awaited_once_with(request)
+        assert result.headers["Cache-Control"] == "no-cache, max-age=0, must-revalidate"
+
+
+async def test_abstp_cover_view_upstream_non_200(hass: HomeAssistant) -> None:
+    """Ensure AbstpCoverView proxies upstream non-200 response codes."""
+    view = AbstpCoverView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    mock_client = MagicMock()
+    mock_client.base_url = "http://abstp.example.com:8099"
+    hass.data[DOMAIN] = {"entry_1": {"client": mock_client}}
+
+    mock_resp = MagicMock()
+    mock_resp.status = 500
+
+    mock_session = MagicMock()
+    session_get = cast("MagicMock", mock_session.get)
+    get_ctx = cast("MagicMock", session_get.return_value)
+    get_enter = cast("MagicMock", get_ctx.__aenter__)
+    get_enter.return_value = mock_resp
+
+    with patch(
+        "custom_components.abstp_controller.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        resp = await view.get(request, "book_1")
+        assert resp.status == 500
+
+
+@pytest.mark.parametrize(
+    "error_cls",
+    [ClientError, TimeoutError],
+)
+async def test_abstp_cover_view_network_errors(
+    hass: HomeAssistant, error_cls: type[Exception]
+) -> None:
+    """Ensure AbstpCoverView handles client or timeout errors by returning 404."""
+    view = AbstpCoverView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    mock_client = MagicMock()
+    mock_client.base_url = "http://abstp.example.com:8099"
+    hass.data[DOMAIN] = {"entry_1": {"client": mock_client}}
+
+    mock_session = MagicMock()
+    session_get = cast("MagicMock", mock_session.get)
+    session_get.side_effect = error_cls("Upstream failure")
+
+    with patch(
+        "custom_components.abstp_controller.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        resp = await view.get(request, "book_1")
+        assert resp.status == 404
+
+
+async def test_abstp_stream_view_head_forbidden_player(
+    hass: HomeAssistant,
+) -> None:
+    """Ensure AbstpStreamView head returns 403 when media player is not allowed."""
+    view = AbstpStreamView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    request.query = {"token": "valid_token"}
+    request.get = MagicMock(return_value=False)
+
+    mock_session_obj = MagicMock()
+    mock_session_obj.entity_id = "media_player.unauthorized"
+
+    mock_tracker = MagicMock(spec=SessionTracker)
+    mock_tracker.is_backend_terminated = MagicMock(return_value=False)
+    mock_tracker.validate_stream_token = MagicMock(return_value=True)
+    mock_tracker.get_session_by_id = MagicMock(return_value=mock_session_obj)
+    stream_url_mock = cast("MagicMock", mock_tracker.get_stream_url)
+    stream_url_mock.return_value = "http://example.com:8099/stream/sess_1.aac"
+    hass.data[DOMAIN] = {"entry_1": {"tracker": mock_tracker}}
+
+    with patch(
+        "custom_components.abstp_controller.is_allowed_player",
+        return_value=False,
+    ):
+        resp = await view.head(request, "sess_1")
+        assert resp.status == 403
+
+
+async def test_abstp_stream_view_get_terminated_unauthorized_and_forbidden(
+    hass: HomeAssistant,
+) -> None:
+    """Ensure stream get checks termination, auth, and player permission."""
+    view = AbstpStreamView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    request.query = {"token": "tok"}
+    request.get = MagicMock(return_value=False)
+
+    mock_tracker = MagicMock(spec=SessionTracker)
+    is_backend_terminated_mock = cast("MagicMock", mock_tracker.is_backend_terminated)
+    is_backend_terminated_mock.return_value = True
+    hass.data[DOMAIN] = {"entry_1": {"tracker": mock_tracker}}
+
+    resp_terminated = await view.get(request, "sess_1")
+    assert resp_terminated.status == 410
+
+    is_backend_terminated_mock.return_value = False
+    stream_url_mock = cast("MagicMock", mock_tracker.get_stream_url)
+    stream_url_mock.return_value = "http://example.com:8099/stream/sess_1.aac"
+    validate_token_mock = cast("MagicMock", mock_tracker.validate_stream_token)
+    validate_token_mock.return_value = False
+
+    resp_unauth = await view.get(request, "sess_1")
+    assert resp_unauth.status == 401
+
+    validate_token_mock.return_value = True
+    mock_session_obj = MagicMock()
+    mock_session_obj.entity_id = "media_player.forbidden"
+    mock_tracker.get_session_by_id = MagicMock(return_value=mock_session_obj)
+
+    with patch(
+        "custom_components.abstp_controller.is_allowed_player",
+        return_value=False,
+    ):
+        resp_forbidden = await view.get(request, "sess_1")
+        assert resp_forbidden.status == 403
+
+
+async def test_abstp_stream_view_get_no_url_available_for_icy(
+    hass: HomeAssistant,
+) -> None:
+    """Verify relative URL generation fallback when HA has no base URL."""
+    view = AbstpStreamView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    request.query = {"token": "secret"}
+    request.get = MagicMock(return_value=False)
+
+    mock_tracker = MagicMock(spec=SessionTracker)
+    mock_tracker.is_backend_terminated = MagicMock(return_value=False)
+    mock_tracker.validate_stream_token = MagicMock(return_value=True)
+    mock_tracker.get_session_by_id = MagicMock(return_value=None)
+    stream_url_mock = cast("MagicMock", mock_tracker.get_stream_url)
+    stream_url_mock.return_value = (
+        "http://example.com:8099/stream/sess_ok.aac?token=secret"
+    )
+    hass.data[DOMAIN] = {"entry_1": {"tracker": mock_tracker}}
+
+    async def _mock_iter_chunks() -> AsyncIterator[tuple[bytes, bool]]:
+        yield b"", False
+
+    mock_content = MagicMock()
+    mock_content.iter_chunks = _mock_iter_chunks
+
+    mock_upstream = MagicMock()
+    mock_upstream.status = 200
+    mock_upstream.content = mock_content
+    mock_upstream.headers = {
+        "icy-logo": "http://127.0.0.1:8099/api/proxy/covers/item_fallback?query=1",
+    }
+
+    mock_session = MagicMock()
+    session_get = cast("MagicMock", mock_session.get)
+    get_ctx = cast("MagicMock", session_get.return_value)
+    get_enter = cast("MagicMock", get_ctx.__aenter__)
+    get_enter.return_value = mock_upstream
+
+    with (
+        patch(
+            "custom_components.abstp_controller.async_get_clientsession",
+            return_value=mock_session,
+        ),
+        patch(
+            "custom_components.abstp_controller.get_url",
+            side_effect=NoURLAvailableError,
+        ),
+        patch.object(web.StreamResponse, "prepare", new_callable=AsyncMock),
+        patch.object(web.StreamResponse, "write_eof", new_callable=AsyncMock),
+    ):
+        resp = await view.get(request, "sess_ok")
+        assert isinstance(resp, web.StreamResponse)
+        assert resp.headers["icy-logo"] == "/api/abstp_controller/cover/item_fallback"
+
+
+async def test_abstp_stream_view_get_error_after_prepare(
+    hass: HomeAssistant,
+) -> None:
+    """Return stream response when connection fails after headers are sent."""
+    view = AbstpStreamView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    request.query = {"token": "secret"}
+    request.get = MagicMock(return_value=False)
+
+    mock_tracker = MagicMock(spec=SessionTracker)
+    mock_tracker.is_backend_terminated = MagicMock(return_value=False)
+    mock_tracker.validate_stream_token = MagicMock(return_value=True)
+    mock_tracker.get_session_by_id = MagicMock(return_value=None)
+    mock_tracker.get_stream_url = MagicMock(
+        return_value="http://example.com:8099/stream/sess.aac"
+    )
+    hass.data[DOMAIN] = {"entry_1": {"tracker": mock_tracker}}
+
+    async def _failing_iter_chunks() -> AsyncIterator[tuple[bytes, bool]]:
+        yield b"chunk", True
+        raise ConnectionResetError
+
+    mock_content = MagicMock()
+    mock_content.iter_chunks = _failing_iter_chunks
+
+    mock_upstream = MagicMock()
+    mock_upstream.status = 200
+    mock_upstream.content = mock_content
+    mock_upstream.headers = {}
+
+    mock_session = MagicMock()
+    session_get = cast("MagicMock", mock_session.get)
+    get_ctx = cast("MagicMock", session_get.return_value)
+    get_enter = cast("MagicMock", get_ctx.__aenter__)
+    get_enter.return_value = mock_upstream
+
+    with (
+        patch(
+            "custom_components.abstp_controller.async_get_clientsession",
+            return_value=mock_session,
+        ),
+        patch.object(web.StreamResponse, "prepare", new_callable=AsyncMock),
+        patch.object(web.StreamResponse, "write", new_callable=AsyncMock),
+        patch.object(
+            web.StreamResponse,
+            "prepared",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+    ):
+        resp = await view.get(request, "sess")
+        assert isinstance(resp, web.StreamResponse)
+        cast("MagicMock", mock_tracker.notify_stream_closed).assert_called_once_with(
+            "sess"
+        )
+
+
+async def test_abstp_stream_view_get_cancelled(hass: HomeAssistant) -> None:
+    """Ensure CancelledError during stream iteration is logged and re-raised."""
+    view = AbstpStreamView()
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.headers = {}
+    request.query = {"token": "secret"}
+    request.get = MagicMock(return_value=False)
+
+    mock_tracker = MagicMock(spec=SessionTracker)
+    mock_tracker.is_backend_terminated = MagicMock(return_value=False)
+    mock_tracker.validate_stream_token = MagicMock(return_value=True)
+    mock_tracker.get_session_by_id = MagicMock(return_value=None)
+    mock_tracker.get_stream_url = MagicMock(
+        return_value="http://example.com:8099/stream/sess.aac"
+    )
+    hass.data[DOMAIN] = {"entry_1": {"tracker": mock_tracker}}
+
+    async def _cancelled_iter_chunks() -> AsyncIterator[tuple[bytes, bool]]:
+        yield b"chunk", True
+        raise asyncio.CancelledError
+
+    mock_content = MagicMock()
+    mock_content.iter_chunks = _cancelled_iter_chunks
+
+    mock_upstream = MagicMock()
+    mock_upstream.status = 200
+    mock_upstream.content = mock_content
+    mock_upstream.headers = {}
+
+    mock_session = MagicMock()
+    session_get = cast("MagicMock", mock_session.get)
+    get_ctx = cast("MagicMock", session_get.return_value)
+    get_enter = cast("MagicMock", get_ctx.__aenter__)
+    get_enter.return_value = mock_upstream
+
+    with (
+        patch(
+            "custom_components.abstp_controller.async_get_clientsession",
+            return_value=mock_session,
+        ),
+        patch.object(web.StreamResponse, "prepare", new_callable=AsyncMock),
+        patch.object(web.StreamResponse, "write", new_callable=AsyncMock),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        _ = await view.get(request, "sess")
+
+    cast("MagicMock", mock_tracker.notify_stream_closed).assert_called_once_with("sess")
+
+
+async def test_async_remove_entry_with_remaining_entries(
+    hass: HomeAssistant,
+) -> None:
+    """Do not delete global preferences if other integration entries exist."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "entry_1"
+
+    other_entry = MagicMock(spec=ConfigEntry)
+    other_entry.entry_id = "entry_2"
+
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[entry, other_entry],
+        ),
+        patch(
+            "custom_components.abstp_controller.async_unregister_resource",
+            new_callable=AsyncMock,
+        ) as mock_unregister,
+        patch(
+            "custom_components.abstp_controller.async_get_card_preference_store",
+        ) as mock_get_store,
+    ):
+        await async_remove_entry(hass, entry)
+        mock_unregister.assert_awaited_once_with(hass)
+        mock_get_store.assert_not_called()
+
+
+async def test_async_remove_entry_cleans_stored_preference(
+    hass: HomeAssistant,
+) -> None:
+    """Ensure cached card preference store is removed on last entry removal."""
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "entry_1"
+
+    mock_store = MagicMock(spec=CardPreferenceStore)
+    preference_remove = AsyncMock()
+    mock_store.configure_mock(async_remove=preference_remove)
+    hass.data[DOMAIN] = {"card_preference_store": mock_store}
+
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[entry],
+        ),
+        patch(
+            "custom_components.abstp_controller.async_unregister_resource",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "custom_components.abstp_controller.async_get_card_preference_store",
+            return_value=mock_store,
+        ),
+    ):
+        await async_remove_entry(hass, entry)
+        assert "card_preference_store" not in hass.data[DOMAIN]
+        preference_remove.assert_awaited_once_with()

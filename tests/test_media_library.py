@@ -143,3 +143,19 @@ async def test_media_library_reports_podcast_fetch_error(
         _ = await AbstpMediaLibrary(hass, coordinator).async_browse_media(
             "podcast/podcast_1"
         )
+
+
+async def test_media_library_falls_back_when_translations_unavailable(
+    hass: HomeAssistant,
+) -> None:
+    """Test library preserves English labels when translation lookup fails."""
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    with patch(
+        "custom_components.abstp_controller.media_library.async_get_translations",
+        new_callable=AsyncMock,
+        side_effect=HomeAssistantError("translations unavailable"),
+    ):
+        root = await AbstpMediaLibrary(hass, coordinator).async_browse_media(None)
+
+    assert root.title == "Audiobookshelf"

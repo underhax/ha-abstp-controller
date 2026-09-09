@@ -76,6 +76,30 @@ async def test_card_preference_store_ignores_invalid_storage(
         assert await preference_store.async_get("user_1", "card_1") is None
 
 
+async def test_card_preference_store_reads_valid_stored_payload(
+    hass: HomeAssistant,
+) -> None:
+    """Test valid persisted preferences are restored from storage."""
+    storage = MagicMock()
+    storage.async_load = AsyncMock(
+        return_value={
+            "users": {
+                "user_1": {"card_1": "media_player.abstp_speaker"},
+            }
+        }
+    )
+
+    with patch(
+        "custom_components.abstp_controller.preferences.Store",
+        return_value=storage,
+    ):
+        preference_store = CardPreferenceStore(hass)
+        assert (
+            await preference_store.async_get("user_1", "card_1")
+            == "media_player.abstp_speaker"
+        )
+
+
 async def test_card_preference_store_removes_storage_file(hass: HomeAssistant) -> None:
     """Test removing the integration deletes its persistent preference store."""
     storage = MagicMock()

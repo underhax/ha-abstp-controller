@@ -50,6 +50,7 @@ from custom_components.abstp_controller.const import (
     ATTR_EPISODE_ID,
     ATTR_ITEM_ID,
     ATTR_PLAYBACK_SPEED,
+    ATTR_SPEED,
     CONF_PLAYER_FRIENDLY_NAMES,
     CONF_TARGET_PLAYERS,
     DOMAIN,
@@ -553,6 +554,54 @@ async def test_virtual_player_metadata_with_active_session(
     assert attrs["target_available"] is True
     assert attrs["item_id"] == "book_1"
     assert attrs[ATTR_PLAYBACK_SPEED] == 1.0
+
+
+async def test_active_session_media_duration_from_in_progress_item(
+    hass: HomeAssistant,
+    mock_books: list[MediaItem],
+    mock_podcasts: list[MediaItem],
+    mock_in_progress: list[InProgressItem],
+) -> None:
+    """Test duration resolution falls back to in-progress items."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=mock_books,
+        podcasts=mock_podcasts,
+        in_progress=mock_in_progress,
+    )
+
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.speaker",
+        session_id="sess_duration_in_progress",
+        item_id="podcast_1",
+        episode_id="ep_1",
+        speed=1.0,
+        initial_position=300.0,
+    )
+
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_meta_in_progress"
+    entry.options = {}
+    entry.data = {}
+
+    hass.states.async_set("media_player.speaker", STATE_PLAYING)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    assert player.media_duration == 1800
+
+    _ = await tracker.async_stop_session_for_entity("media_player.speaker")
 
 
 async def test_idle_virtual_player_syncs_selected_abs_progress(
@@ -1153,5 +1202,540 @@ async def test_virtual_player_lifecycle_and_restore(hass: HomeAssistant) -> None
         for listener in listeners:
             listener()
         mock_write.assert_called()
+
+    await player.async_will_remove_from_hass()
+
+
+def test_extra_restore_state_data_returns_none(hass: HomeAssistant) -> None:
+    """Test restore data is handled explicitly via extra_state_restore."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_restore_none"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+
+    assert player.extra_restore_state_data is None
+
+
+async def test_session_stopped_dispatcher_handles_playback(
+    hass: HomeAssistant,
+    mock_books: list[MediaItem],
+    mock_podcasts: list[MediaItem],
+    mock_in_progress: list[InProgressItem],
+) -> None:
+    """Test dispatcher callback refreshes virtual player state on session stop."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    listeners: list[Callable[[], None]] = []
+
+    def capture_listener(cb: Callable[[], None]) -> MagicMock:
+        listeners.append(cb)
+        return MagicMock()
+
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.last_update_success = True
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=mock_books,
+        podcasts=mock_podcasts,
+        in_progress=mock_in_progress,
+    )
+    coordinator.async_add_listener = capture_listener
+
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_session_stopped"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set("media_player.speaker", STATE_PLAYING)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    with patch(
+        "custom_components.abstp_controller.media_player.async_get"
+    ) as mock_async_get:
+        mock_restore_data = MagicMock()
+        mock_restore_data.last_states = {}
+        mock_async_get.return_value = mock_restore_data
+
+        await player.async_added_to_hass()
+
+    with patch.object(player, "async_write_ha_state") as mock_write:
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        async_dispatcher_send(
+            hass, f"{DOMAIN}_session_stopped_{player.target_entity_id}"
+        )
+        await hass.async_block_till_done()
+
+    mock_write.assert_called()
+
+    await player.async_will_remove_from_hass()
+
+
+async def test_media_play_includes_speed_and_position(
+    hass: HomeAssistant,
+) -> None:
+    """Test async_media_play passes configured speed and current position."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_play_speed"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set("media_player.speaker", STATE_IDLE)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+    for attr, val in (
+        ("_item_id", "book_1"),
+        ("_playback_speed", 1.5),
+        ("_attr_media_position", 77),
+    ):
+        setattr(player, attr, val)
+
+    custom_play_calls = _mock_service(hass, DOMAIN, SERVICE_PLAY)
+
+    await player.async_media_play()
+
+    assert custom_play_calls[0].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        ATTR_ITEM_ID: "book_1",
+        ATTR_SPEED: 1.5,
+        ATTR_CURRENT_TIME: 77.0,
+    }
+
+
+async def test_media_play_pause_stops_while_playing(hass: HomeAssistant) -> None:
+    """Test play_pause delegates to stop when player is already playing."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_play_pause"
+    entry.options = {}
+    entry.data = {}
+
+    hass.states.async_set(
+        "media_player.speaker",
+        STATE_PLAYING,
+        {"supported_features": int(MediaPlayerEntityFeature.STOP)},
+    )
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+    for attr, val in (("_attr_state", MediaPlayerState.PLAYING),):
+        setattr(player, attr, val)
+
+    stop_calls = _mock_service(hass, "media_player", "media_stop")
+    with patch.object(tracker, "async_stop_session_for_entity", new_callable=AsyncMock):
+        await player.async_media_play_pause()
+
+    assert len(stop_calls) == 1
+    assert stop_calls[0].data == {ATTR_ENTITY_ID: "media_player.speaker"}
+    assert player.state == MediaPlayerState.IDLE
+
+
+async def test_media_stop_uses_session_position(hass: HomeAssistant) -> None:
+    """Test stop uses estimated session position when session is active."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_stop_session"
+    entry.options = {}
+    entry.data = {}
+
+    hass.states.async_set(
+        "media_player.talker",
+        STATE_PLAYING,
+        {"supported_features": int(MediaPlayerEntityFeature.STOP)},
+    )
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.talker",
+    )
+    _attach_player_to_hass(player, hass)
+    tracker.register_session(
+        entity_id="media_player.talker",
+        session_id="sess_stop_pos",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=30.0,
+    )
+
+    stop_session_mock = AsyncMock(return_value=True)
+    client.async_stop_session = stop_session_mock
+    with patch.object(tracker, "estimate_current_position", return_value=91.0):
+        await player.async_media_stop()
+
+    assert player.media_position == 91
+    stop_session_mock.assert_awaited_once_with("sess_stop_pos")
+
+
+async def test_media_stop_uses_stored_position_without_session(
+    hass: HomeAssistant,
+) -> None:
+    """Test stop falls back to stored media position when no session exists."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_stop_stored"
+    entry.options = {}
+    entry.data = {}
+
+    hass.states.async_set(
+        "media_player.talker",
+        STATE_PLAYING,
+        {"supported_features": int(MediaPlayerEntityFeature.STOP)},
+    )
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.talker",
+    )
+    _attach_player_to_hass(player, hass)
+    for attr, val in (("_attr_media_position", 33),):
+        setattr(player, attr, val)
+
+    with patch.object(tracker, "async_stop_session_for_entity", new_callable=AsyncMock):
+        await player.async_media_stop()
+
+    assert player.media_position == 33
+
+
+async def test_media_stop_without_stop_or_pause_feature(hass: HomeAssistant) -> None:
+    """Test stop still terminates tracker session when target lacks controls."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_stop_none"
+    entry.options = {}
+    entry.data = {}
+
+    hass.states.async_set(
+        "media_player.talker",
+        STATE_PLAYING,
+        {"supported_features": 0},
+    )
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.talker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    stop_calls = _mock_service(hass, "media_player", "media_stop")
+    pause_calls = _mock_service(hass, "media_player", "media_pause")
+    with patch.object(
+        tracker, "async_stop_session_for_entity", new_callable=AsyncMock
+    ) as mock_stop:
+        await player.async_media_stop()
+
+    assert len(stop_calls) == 0
+    assert len(pause_calls) == 0
+    mock_stop.assert_called_once_with("media_player.talker")
+
+
+async def test_media_seek_with_episode_id(hass: HomeAssistant) -> None:
+    """Test seek forwards episode id together with item id."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_seek_episode"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set("media_player.speaker", STATE_IDLE)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+    for attr, val in (
+        ("_item_id", "pod_1"),
+        ("_episode_id", "ep_2"),
+        ("_attr_state", MediaPlayerState.PLAYING),
+    ):
+        setattr(player, attr, val)
+
+    custom_play_calls = _mock_service(hass, DOMAIN, SERVICE_PLAY)
+
+    await player.async_media_seek(60.0)
+
+    assert custom_play_calls[-1].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        ATTR_ITEM_ID: "pod_1",
+        ATTR_EPISODE_ID: "ep_2",
+        ATTR_CURRENT_TIME: 60.0,
+    }
+
+
+async def test_media_seek_forwards_to_media_seek_without_item(
+    hass: HomeAssistant,
+) -> None:
+    """Test seek falls back to generic media_seek when no item is selected."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_seek_forward"
+    entry.options = {}
+    entry.data = {}
+    hass.states.async_set("media_player.speaker", STATE_IDLE)
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    seek_calls = _mock_service(hass, "media_player", "media_seek")
+
+    await player.async_media_seek(25.0)
+
+    assert seek_calls[0].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        "seek_position": 25.0,
+    }
+
+
+async def test_play_media_includes_speed(hass: HomeAssistant) -> None:
+    """Test tracking-play media call passes configured playback speed."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_play_media_speed"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+    for attr, val in (("_playback_speed", 2.0),):
+        setattr(player, attr, val)
+
+    custom_play_calls = _mock_service(hass, DOMAIN, SERVICE_PLAY)
+
+    await player.async_play_media("music", "in_progress/book_9/ep_7")
+
+    assert custom_play_calls[0].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        ATTR_ITEM_ID: "book_9",
+        ATTR_EPISODE_ID: "ep_7",
+        ATTR_SPEED: 2.0,
+    }
+
+
+async def test_play_media_resolves_media_source(hass: HomeAssistant) -> None:
+    """Test external media-source URLs are resolved and forwarded to target."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_ms_resolve"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    resolved = MagicMock()
+    resolved.url = "http://audio.example.com/stream.mp3"
+    resolved.mime_type = "audio/mpeg"
+    with (
+        patch(
+            "custom_components.abstp_controller.media_player.media_source.is_media_source_id",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.abstp_controller.media_player.media_source.async_resolve_media",
+            new_callable=AsyncMock,
+            return_value=resolved,
+        ),
+    ):
+        play_media_calls = _mock_service(hass, "media_player", "play_media")
+        await player.async_play_media("music", "media-source://audio/stream")
+
+    assert play_media_calls[0].data == {
+        ATTR_ENTITY_ID: "media_player.speaker",
+        "media_content_id": "http://audio.example.com/stream.mp3",
+        "media_content_type": "audio/mpeg",
+    }
+
+
+@pytest.mark.parametrize(
+    "raw_targets",
+    [
+        "media_player.bedroom",
+        42,
+    ],
+)
+async def test_async_setup_entry_handles_non_list_targets(
+    hass: HomeAssistant,
+    raw_targets: object,
+) -> None:
+    """Test setup normalizes string targets and ignores unsupported types."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+
+    entry = MagicMock(spec=ConfigEntry)
+    entry_id = "test_entry_non_list_targets"
+    entry.entry_id = entry_id
+    entry.options = {CONF_TARGET_PLAYERS: raw_targets}
+    entry.data = {}
+
+    hass.data[DOMAIN] = {entry_id: {"coordinator": coordinator, "tracker": tracker}}
+    hass.states.async_set("media_player.bedroom", STATE_IDLE)
+
+    added: list[Entity] = []
+
+    def add_entities(new: Iterable[Entity], update_before_add: bool = False) -> None:
+        _ = update_before_add
+        added.extend(new)
+
+    await async_setup_entry(hass, entry, cast("AddEntitiesCallback", add_entities))
+
+    if isinstance(raw_targets, str):
+        assert len(added) == 1
+        assert isinstance(added[0], AbstpVirtualMediaPlayer)
+        assert added[0].target_entity_id == "media_player.bedroom"
+    else:
+        assert len(added) == 0
+
+
+async def test_restore_numeric_attributes_and_episode_id(
+    hass: HomeAssistant,
+) -> None:
+    """Test restore path accepts numeric duration, position, and episode id."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    listeners: list[Callable[[], None]] = []
+
+    def capture_listener(cb: Callable[[], None]) -> MagicMock:
+        listeners.append(cb)
+        return MagicMock()
+
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.last_update_success = True
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    coordinator.async_add_listener = capture_listener
+
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_restore_numeric"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    mock_stored = MagicMock()
+    mock_stored.state = State(
+        player.entity_id,
+        STATE_PLAYING,
+        {
+            "media_duration": 100.5,
+            "media_position": 42.0,
+            ATTR_ITEM_ID: "item_xyz",
+            ATTR_EPISODE_ID: "ep_restored",
+            ATTR_PLAYBACK_SPEED: 1.25,
+        },
+    )
+    with patch(
+        "custom_components.abstp_controller.media_player.async_get"
+    ) as mock_async_get:
+        mock_restore_data = MagicMock()
+        mock_restore_data.last_states = {player.entity_id: mock_stored}
+        mock_async_get.return_value = mock_restore_data
+
+        await player.async_added_to_hass()
+
+    assert player.media_duration == 100
+    assert player.media_position == 42
+    assert player.extra_state_attributes is not None
+    assert player.extra_state_attributes["episode_id"] == "ep_restored"
+    assert player.extra_state_attributes["item_id"] == "item_xyz"
 
     await player.async_will_remove_from_hass()

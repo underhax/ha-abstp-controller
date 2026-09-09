@@ -34,3 +34,4 @@ custom_components/abstp_controller/www/
 !.github/requirements_test.txt
 
 *.sh
+coverage.json

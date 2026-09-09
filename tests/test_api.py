@@ -417,3 +417,181 @@ async def test_get_book_chapters_connection_error(mock_session: MagicMock) -> No
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     with pytest.raises(AbstpConnectionError):
         _ = await client.async_get_book_chapters("book_1")
+
+
+def test_client_base_url_property(mock_session: MagicMock) -> None:
+    """Verify that the base_url property strips trailing slashes."""
+    client = AbstpApiClient(
+        mock_session, "http://abstp.example.com:8099/", "test_proxy_secret_key_12345"
+    )
+    assert client.base_url == BASE_TEST_URL
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_request_client_response_error_auth(
+    mock_session: MagicMock, status_code: int
+) -> None:
+    """Verify ClientResponseError with 401 or 403 is translated into AbstpAuthError."""
+    err = aiohttp.ClientResponseError(
+        request_info=MagicMock(),
+        history=(),
+        status=status_code,
+        message="Unauthorized",
+    )
+    set_mock_response(mock_session, err)
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    with pytest.raises(AbstpAuthError) as exc_info:
+        _ = await client.async_get_books()
+    assert exc_info.value.status == status_code
+
+
+async def test_get_health_non_dict_response(mock_session: MagicMock) -> None:
+    """Verify health check returns False when payload is not a JSON object."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value=["unexpected", "list"])
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    result = await client.async_get_health()
+    assert result is False
+
+
+async def test_get_books_non_list_or_missing_id(mock_session: MagicMock) -> None:
+    """Verify empty list fallback on non-list response and skipping items without id."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value={"error": "not a list"})
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    books_empty = await client.async_get_books()
+    assert books_empty == []
+
+    mock_response.json = AsyncMock(
+        return_value=[
+            {"title": "Missing ID Book"},
+            {
+                "id": "book_valid",
+                "title": "Valid Book",
+                "author": "Author",
+                "duration": 100.0,
+                "progress": 50.0,
+                "isFinished": False,
+            },
+        ]
+    )
+    books_filtered = await client.async_get_books()
+    assert len(books_filtered) == 1
+    assert books_filtered[0].id == "book_valid"
+
+
+async def test_get_podcasts_non_list_or_missing_id(
+    mock_session: MagicMock,
+) -> None:
+    """Verify empty fallback on non-list response and skipping podcasts without id."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value={"error": "not a list"})
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    podcasts_empty = await client.async_get_podcasts()
+    assert podcasts_empty == []
+
+    mock_response.json = AsyncMock(
+        return_value=[
+            {"title": "Missing ID Podcast"},
+            {
+                "id": "podcast_valid",
+                "title": "Valid Podcast",
+                "author": "Host",
+                "duration": 200.0,
+                "progress": 20.0,
+                "isFinished": False,
+            },
+        ]
+    )
+    podcasts_filtered = await client.async_get_podcasts()
+    assert len(podcasts_filtered) == 1
+    assert podcasts_filtered[0].id == "podcast_valid"
+
+
+async def test_get_podcast_episodes_dict_and_invalid_formats(
+    mock_session: MagicMock,
+) -> None:
+    """Verify nested episodes dictionary, non-list fallback, and missing id check."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(
+        return_value={
+            "episodes": [
+                {"title": "Missing ID Episode"},
+                {
+                    "id": "ep_valid",
+                    "title": "Valid Episode",
+                    "duration": 300.0,
+                    "progress": 10.0,
+                    "isFinished": False,
+                },
+            ]
+        }
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    episodes = await client.async_get_podcast_episodes("pod_1")
+    assert len(episodes) == 1
+    assert episodes[0].id == "ep_valid"
+
+    mock_response.json = AsyncMock(return_value="invalid string response")
+    empty_episodes = await client.async_get_podcast_episodes("pod_1")
+    assert empty_episodes == []
+
+
+async def test_start_session_with_episode_and_invalid_response(
+    mock_session: MagicMock,
+) -> None:
+    """Verify episode_id parameter inclusion and non-dict error handling."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(
+        return_value={
+            "session_id": "sess_ep_1",
+            "stream_url": "http://stream.example.com/sess.aac",
+            "current_time": 10.0,
+            "duration": 500.0,
+        }
+    )
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    session = await client.async_start_session("pod_1", episode_id="ep_42")
+    assert session.session_id == "sess_ep_1"
+
+    req_mock = cast("MagicMock", mock_session.request)
+    call_kwargs = cast("dict[str, object]", req_mock.call_args[1])
+    json_payload = cast("dict[str, object]", call_kwargs["json"])
+    assert json_payload.get("episode_id") == "ep_42"
+
+    mock_response.json = AsyncMock(return_value=["invalid", "format"])
+    with pytest.raises(AbstpApiError):
+        _ = await client.async_start_session("pod_1")
+
+
+async def test_stop_session_non_dict_response(mock_session: MagicMock) -> None:
+    """Verify stop session returns False when response is not a JSON object."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = AsyncMock(return_value=["not", "a", "dict"])
+    set_mock_response(mock_session, mock_response)
+
+    client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
+    result = await client.async_stop_session("sess_1")
+    assert result is False
