@@ -35,3 +35,4 @@ custom_components/abstp_controller/www/
 
 *.sh
 coverage.json
+frontend/coverage/

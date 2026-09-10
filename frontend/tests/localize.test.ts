@@ -16,6 +16,11 @@ describe('localize()', (): void => {
     expect(translated).toBe('Audiobookshelf Player');
   });
 
+  it('uses English when the language segment is empty', (): void => {
+    const translated: string = localize('card.name', '');
+    expect(translated).toBe('Audiobookshelf Player');
+  });
+
   it('returns key string when key does not exist', (): void => {
     const translated: string = localize('non.existent.key', 'en');
     expect(translated).toBe('non.existent.key');

@@ -5,6 +5,7 @@ import {
   filterAvailablePlayers,
   renderDevicePicker,
   renderPlayerIcon,
+  renderSpeakerMenuItem,
   resolveDeviceSubtitle,
 } from '../src/card/templates/device-picker.ts';
 import type { HassEntity, HomeAssistant } from '../src/types.ts';
@@ -13,6 +14,15 @@ describe('renderPlayerIcon()', (): void => {
   it('renders speaker icon when entity and entityId are absent', (): void => {
     const result: TemplateResult = renderPlayerIcon(undefined, undefined);
     expect(result).toBeDefined();
+  });
+
+  it('falls back to empty id when entity lacks entity_id', (): void => {
+    const entity: HassEntity = {
+      attributes: { device_class: 'speaker' },
+      state: 'idle',
+    } as unknown as HassEntity;
+    const result: TemplateResult = renderPlayerIcon(entity);
+    expect(result.strings.join('')).toContain('mdi:speaker');
   });
 
   it('renders custom icon when icon attribute is provided', (): void => {
@@ -102,6 +112,62 @@ describe('resolveDeviceSubtitle()', (): void => {
     expect(resolveDeviceSubtitle('media_player.kitchen_sound', undefined, 'en')).toBe(
       'kitchen_sound',
     );
+  });
+});
+
+describe('renderSpeakerMenuItem()', (): void => {
+  const mockUnavailableHass: HomeAssistant = {
+    states: {
+      'media_player.broken': {
+        attributes: { friendly_name: 'Broken Speaker' },
+        entity_id: 'media_player.broken',
+        state: 'unavailable',
+      },
+    },
+  } as unknown as HomeAssistant;
+
+  it('applies disabled state and ignores clicks for unavailable speaker', (): void => {
+    const onSelect = vi.fn();
+    const result: TemplateResult = renderSpeakerMenuItem(
+      'media_player.broken',
+      'en',
+      mockUnavailableHass,
+      'media_player.other',
+      onSelect,
+    );
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    const item: HTMLElement | null = container.querySelector('.device-menu-item');
+    expect(item?.classList.contains('disabled')).toBe(true);
+    expect(item?.classList.contains('active')).toBe(false);
+    item?.click();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('omits area label when subtitle resolves to empty string', (): void => {
+    const mockEdgeHass: HomeAssistant = {
+      states: {
+        'media_player.': {
+          attributes: {},
+          entity_id: 'media_player.',
+          state: 'idle',
+        },
+      },
+    } as unknown as HomeAssistant;
+
+    const result: TemplateResult = renderSpeakerMenuItem(
+      'media_player.',
+      'en',
+      mockEdgeHass,
+      'media_player.other',
+      vi.fn(),
+    );
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.device-item-area')).toBeNull();
+    expect(container.querySelector('.device-item-name')?.textContent).toBe('media_player.');
   });
 });
 
@@ -226,5 +292,26 @@ describe('renderDevicePicker()', (): void => {
     expect(items.length).toBe(2);
     items[1]?.click();
     expect(selectFn).toHaveBeenCalledWith('media_player.hall');
+  });
+
+  it('renders clickable badge without popover when menu is closed', (): void => {
+    const context: DevicePickerContext = {
+      allowedPlayers: ['media_player.kitchen', 'media_player.hall'],
+      config: {
+        player_entities: ['media_player.kitchen', 'media_player.hall'],
+        type: 'custom:abstp-player-card',
+      },
+      lang: 'en',
+      onSelectPlayer: vi.fn(),
+      onToggleDeviceMenu: vi.fn(),
+      selectedPlayer: 'media_player.kitchen',
+      showDeviceMenu: false,
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderDevicePicker(context), container);
+
+    expect(container.querySelector('.clickable')).not.toBeNull();
+    expect(container.querySelector('.device-menu-popover')).toBeNull();
   });
 });

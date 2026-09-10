@@ -647,4 +647,602 @@ describe('LibraryController', (): void => {
 
     expect(onRestoreItem).not.toHaveBeenCalled();
   });
+
+  it('clears fetching flags when disconnected', (): void => {
+    library.isFetchingLibrary = true;
+    library.isRefreshing = true;
+
+    library.hostDisconnected();
+
+    expect(library.isFetchingLibrary).toBe(false);
+    expect(library.isRefreshing).toBe(false);
+  });
+
+  it('returns early when hass is unavailable before fetching the library', async (): Promise<void> => {
+    const noHassLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): undefined => undefined,
+    });
+
+    await noHassLibrary.fetchLibrary();
+
+    expect(noHassLibrary.books).toEqual([]);
+    expect(noHassLibrary.isFetchingLibrary).toBe(false);
+  });
+
+  it('ignores stale library failures after a newer response', async (): Promise<void> => {
+    let rejectFirst: ((reason: Error) => void) | undefined;
+    let resolveSecond: ((value: object) => void) | undefined;
+    const firstResponse: Promise<object> = new Promise((_resolve, reject): void => {
+      rejectFirst = reject;
+    });
+    const secondResponse: Promise<object> = new Promise((resolve): void => {
+      resolveSecond = resolve;
+    });
+    const callWS = mockHass.callWS as ReturnType<typeof vi.fn>;
+    callWS
+      .mockImplementationOnce(() => firstResponse)
+      .mockImplementationOnce(() => secondResponse)
+      .mockResolvedValue({ chapters: [] });
+
+    const firstFetch: Promise<void> = library.fetchLibrary();
+    const secondFetch: Promise<void> = library.fetchLibrary();
+
+    resolveSecond?.({ books: [], in_progress: [], podcasts: [] });
+    await secondFetch;
+
+    rejectFirst?.(new Error('Network error'));
+    await firstFetch;
+
+    expect(library.isRefreshing).toBe(false);
+    expect(library.isFetchingLibrary).toBe(false);
+  });
+
+  it('marks the in-progress tab as active when in-progress items exist', (): void => {
+    library.applyLibraryUpdate({
+      books: [],
+      in_progress: [
+        {
+          author: 'InAuthor',
+          cover_url: '',
+          current_time: 10,
+          duration: 1000,
+          id: 'in_1',
+          media_type: 'book',
+          progress: 10,
+          title: 'In Progress Book',
+        },
+      ],
+      podcasts: [],
+    });
+
+    expect(library.activeTab).toBe('in_progress');
+  });
+
+  it('selects the podcasts tab when books are hidden', (): void => {
+    const hiddenBooksLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => ({
+        ...mockConfig,
+        hide_books: true,
+        hide_podcasts: false,
+      }),
+      getCurrentItem: (): null => null,
+      getHass: (): HomeAssistant => mockHass,
+    });
+
+    hiddenBooksLibrary.applyLibraryUpdate({
+      books: [],
+      in_progress: [],
+      podcasts: [],
+    });
+
+    expect(hiddenBooksLibrary.activeTab).toBe('podcasts');
+  });
+
+  it('returns early when hass is unavailable before fetching episodes', async (): Promise<void> => {
+    const noHassLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): undefined => undefined,
+    });
+
+    await noHassLibrary.fetchEpisodes('pod_1');
+
+    expect(noHassLibrary.selectedPodcastId).toBeNull();
+    expect(noHassLibrary.episodes).toEqual({});
+  });
+
+  it('keeps an empty episode list when the episode fetch fails', async (): Promise<void> => {
+    const failedPodcastId: string = 'pod_fail';
+    (mockHass.callWS as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'));
+
+    await library.fetchEpisodes(failedPodcastId);
+
+    expect(library.episodes[failedPodcastId]).toEqual([]);
+  });
+
+  it('maps the podcast title onto fetched episodes', async (): Promise<void> => {
+    const podcastId: string = 'pod_title';
+    library.podcasts = [
+      {
+        author: 'Podcast Host',
+        cover_url: '',
+        duration: 1800,
+        id: podcastId,
+        media_type: 'podcast',
+        progress: 0,
+        title: 'Titled Podcast',
+      },
+    ];
+    (mockHass.callWS as ReturnType<typeof vi.fn>).mockResolvedValue({
+      episodes: [
+        {
+          duration: 600,
+          id: 'ep_1',
+          progress: 0,
+          title: 'Episode One',
+        },
+      ],
+    });
+
+    await library.fetchEpisodes(podcastId);
+
+    const loadedEpisode: PodcastEpisode | undefined = library.episodes[podcastId]?.[0];
+    expect(loadedEpisode?.podcast_title).toBe('Titled Podcast');
+    expect(loadedEpisode?.podcast_id).toBe(podcastId);
+  });
+
+  it('returns early when hass is unavailable before fetching chapters', async (): Promise<void> => {
+    const noHassLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): undefined => undefined,
+    });
+
+    await noHassLibrary.fetchChapters('book_1');
+
+    expect(noHassLibrary.chapters).toEqual([]);
+    expect(noHassLibrary.isLoadingChapters).toBe(false);
+  });
+
+  it('clears chapters when the current item is a podcast', async (): Promise<void> => {
+    const onChaptersUnavailable = vi.fn();
+    library.chapters = [{ duration: 100, end: 100, id: 0, start: 0, title: 'Chapter 1' }];
+    const podcastItem: PodcastEpisode = {
+      duration: 600,
+      id: 'ep_1',
+      podcast_id: 'pod_1',
+      progress: 0,
+      title: 'Episode One',
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): PodcastEpisode => podcastItem,
+      getHass: (): HomeAssistant => mockHass,
+      onChaptersUnavailable,
+    });
+
+    await customLibrary.fetchChapters();
+
+    expect(customLibrary.chapters).toEqual([]);
+    expect(customLibrary.chaptersBookId).toBe('');
+    expect(onChaptersUnavailable).toHaveBeenCalled();
+  });
+
+  it('returns early when no book id can be resolved for chapters', async (): Promise<void> => {
+    await library.fetchChapters();
+
+    expect(library.chapters).toEqual([]);
+    expect(library.isLoadingChapters).toBe(false);
+  });
+
+  it('skips refetching chapters already loaded for the same book', async (): Promise<void> => {
+    const callWS = mockHass.callWS as ReturnType<typeof vi.fn>;
+    callWS.mockResolvedValue({
+      chapters: [
+        { duration: 100, end: 100, id: 0, start: 0, title: 'Chapter 1' },
+        { duration: 200, end: 300, id: 1, start: 100, title: 'Chapter 2' },
+      ],
+    });
+
+    await library.fetchChapters('book_cached');
+    await library.fetchChapters('book_cached');
+
+    expect(callWS).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches to the session player when the selected player is inactive', (): void => {
+    const onRestoreItem = vi.fn();
+    const onSelectedPlayerChange = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_a': {
+        attributes: {},
+        entity_id: 'media_player.abstp_a',
+        state: 'idle',
+      },
+      'media_player.abstp_b': {
+        attributes: {},
+        entity_id: 'media_player.abstp_b',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_a',
+      onRestoreItem,
+      onSelectedPlayerChange,
+    });
+    customLibrary.books = [
+      {
+        author: 'Session Author',
+        cover_url: '',
+        duration: 3600,
+        id: 'session_book',
+        media_type: 'book',
+        progress: 0,
+        title: 'Session Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({
+      'media_player.abstp_b': {
+        current_time: 120,
+        entity_id: 'media_player.abstp_b',
+        episode_id: null,
+        item_id: 'session_book',
+        session_id: 'session_b',
+        speed: 1,
+      },
+    });
+
+    expect(onSelectedPlayerChange).toHaveBeenCalledWith('media_player.abstp_b');
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'session_book' }),
+      120,
+      3600,
+      true,
+      1,
+    );
+  });
+
+  it('ignores active sessions referencing unknown items', (): void => {
+    const onRestoreItem = vi.fn();
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      onRestoreItem,
+    });
+
+    customLibrary.restoreActiveOrSavedItem({
+      'media_player.abstp_z': {
+        current_time: 50,
+        entity_id: 'media_player.abstp_z',
+        episode_id: null,
+        item_id: 'ghost_book',
+        session_id: 'session_z',
+        speed: 1,
+      },
+    });
+
+    expect(onRestoreItem).not.toHaveBeenCalled();
+  });
+
+  it('clears chapters when the active session resumes a podcast episode', (): void => {
+    const onChaptersUnavailable = vi.fn();
+    const onRestoreItem = vi.fn();
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living',
+      onChaptersUnavailable,
+      onRestoreItem,
+    });
+    customLibrary.inProgress = [
+      {
+        author: 'Podcast Author',
+        cover_url: '',
+        current_time: 120,
+        duration: 600,
+        episode_id: 'ep_1',
+        id: 'pod_session',
+        media_type: 'podcast',
+        progress: 120,
+        title: 'Podcast Episode',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({
+      'media_player.abstp_living': {
+        current_time: 300,
+        entity_id: 'media_player.abstp_living',
+        episode_id: 'ep_1',
+        item_id: 'pod_session',
+        session_id: 'session_pod',
+        speed: 1.5,
+      },
+    });
+
+    expect(onChaptersUnavailable).toHaveBeenCalled();
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'pod_session' }),
+      300,
+      600,
+      true,
+      1.5,
+    );
+  });
+
+  it('returns early when no saved item can be restored by default', (): void => {
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_living': {
+        attributes: {},
+        entity_id: 'media_player.abstp_living',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living',
+      onRestoreItem,
+    });
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).not.toHaveBeenCalled();
+  });
+
+  it('clears chapters when restoring a default podcast item', (): void => {
+    const onChaptersUnavailable = vi.fn();
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_living': {
+        attributes: { item_id: 'pod_default' },
+        entity_id: 'media_player.abstp_living',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living',
+      onChaptersUnavailable,
+      onRestoreItem,
+    });
+    customLibrary.podcasts = [
+      {
+        author: 'Default Author',
+        cover_url: '',
+        duration: 1800,
+        id: 'pod_default',
+        media_type: 'podcast',
+        progress: 0,
+        title: 'Default Podcast',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onChaptersUnavailable).toHaveBeenCalled();
+    expect(onRestoreItem).toHaveBeenCalled();
+  });
+
+  it('leaves the refreshing flag off during background library fetches', async (): Promise<void> => {
+    let resolveFetch: ((value: object) => void) | undefined;
+    const pendingFetch: Promise<object> = new Promise((resolve): void => {
+      resolveFetch = resolve;
+    });
+    (mockHass.callWS as ReturnType<typeof vi.fn>).mockReturnValueOnce(pendingFetch);
+
+    const fetchPromise: Promise<void> = library.fetchLibrary(true);
+
+    expect(library.isFetchingLibrary).toBe(true);
+    expect(library.isRefreshing).toBe(false);
+
+    resolveFetch?.({ books: [], in_progress: [], podcasts: [] });
+    await fetchPromise;
+
+    expect(library.isRefreshing).toBe(false);
+  });
+
+  it('defaults missing in-progress lists to an empty array', (): void => {
+    library.applyLibraryUpdate({
+      books: [],
+      podcasts: [],
+    });
+
+    expect(library.inProgress).toEqual([]);
+  });
+
+  it('keeps the current tab when both books and podcasts are hidden', (): void => {
+    const hiddenLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => ({
+        ...mockConfig,
+        hide_books: true,
+        hide_podcasts: true,
+      }),
+      getCurrentItem: (): null => null,
+      getHass: (): HomeAssistant => mockHass,
+    });
+
+    hiddenLibrary.applyLibraryUpdate({
+      books: [],
+      in_progress: [],
+      podcasts: [],
+    });
+
+    expect(hiddenLibrary.activeTab).toBe('in_progress');
+  });
+
+  it('resolves the book id from the current item when no target is given', async (): Promise<void> => {
+    const currentItem: MediaItem = {
+      author: 'Current Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'book_current',
+      media_type: 'book',
+      progress: 0,
+      title: 'Current Book',
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): MediaItem => currentItem,
+      getHass: (): HomeAssistant => mockHass,
+    });
+    (mockHass.callWS as ReturnType<typeof vi.fn>).mockResolvedValue({
+      chapters: [{ duration: 100, end: 100, id: 0, start: 0, title: 'Chapter 1' }],
+    });
+
+    await customLibrary.fetchChapters();
+
+    expect(customLibrary.chaptersBookId).toBe('book_current');
+  });
+
+  it('falls back to zero duration when restoring an item without a duration', (): void => {
+    const onRestoreItem = vi.fn();
+    const existingItem: MediaItem = {
+      author: 'NoDuration Author',
+      cover_url: '',
+      duration: 0,
+      id: 'book_noduration',
+      media_type: 'book',
+      progress: 0,
+      title: 'No Duration Book',
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): MediaItem => existingItem,
+      getHass: (): HomeAssistant => mockHass,
+      getIsPlaying: (): boolean => false,
+      onRestoreItem,
+    });
+    customLibrary.inProgress = [
+      {
+        author: 'NoDuration Author',
+        cover_url: '',
+        current_time: 30,
+        duration: 0,
+        id: 'book_noduration',
+        media_type: 'book',
+        progress: 30,
+        title: 'No Duration Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'book_noduration' }),
+      30,
+      0,
+      false,
+    );
+  });
+
+  it('skips chapter fetch when the stopped current item is a podcast', (): void => {
+    const onRestoreItem = vi.fn();
+    const onChaptersUnavailable = vi.fn();
+    const currentItem: PodcastEpisode = {
+      duration: 600,
+      id: 'ep_pod',
+      podcast_id: 'pod_pod',
+      progress: 0,
+      title: 'Pod Episode',
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getCurrentItem: (): PodcastEpisode => currentItem,
+      getHass: (): HomeAssistant => mockHass,
+      getIsPlaying: (): boolean => false,
+      onChaptersUnavailable,
+      onRestoreItem,
+    });
+    customLibrary.inProgress = [
+      {
+        author: 'Pod Author',
+        cover_url: '',
+        current_time: 25,
+        duration: 600,
+        episode_id: 'ep_pod',
+        id: 'pod_pod',
+        media_type: 'podcast',
+        progress: 25,
+        title: 'Pod Episode',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).toHaveBeenCalled();
+    expect(onChaptersUnavailable).not.toHaveBeenCalled();
+  });
+
+  it('reads a string episode id from the player attributes', (): void => {
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_living': {
+        attributes: { episode_id: 'ep_string', item_id: 'book_ep' },
+        entity_id: 'media_player.abstp_living',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living',
+      onRestoreItem,
+    });
+    customLibrary.books = [
+      {
+        author: 'Episode Author',
+        cover_url: '',
+        duration: 3600,
+        id: 'book_ep',
+        media_type: 'book',
+        progress: 0,
+        title: 'Episode Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).not.toHaveBeenCalled();
+  });
+
+  it('falls back to zero duration when restoring a default item without a duration', (): void => {
+    const onRestoreItem = vi.fn();
+    mockHass.states = {
+      'media_player.abstp_living': {
+        attributes: { item_id: 'book_default' },
+        entity_id: 'media_player.abstp_living',
+        state: 'idle',
+      },
+    };
+    const customLibrary = new LibraryController(host, {
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getSelectedPlayer: (): string => 'media_player.abstp_living',
+      onRestoreItem,
+    });
+    customLibrary.books = [
+      {
+        author: 'Default Author',
+        cover_url: '',
+        duration: 0,
+        id: 'book_default',
+        media_type: 'book',
+        progress: 0,
+        title: 'Default Book',
+      },
+    ];
+
+    customLibrary.restoreActiveOrSavedItem({});
+
+    expect(onRestoreItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'book_default' }),
+      0,
+      0,
+      false,
+    );
+  });
 });

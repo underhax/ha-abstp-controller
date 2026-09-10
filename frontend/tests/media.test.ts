@@ -71,6 +71,21 @@ describe('isPodcastItem()', (): void => {
     };
     expect(isPodcastItem(book)).toBe(false);
   });
+
+  it('detects podcast item by episode_id when media type is not podcast', (): void => {
+    const item: InProgressItem = {
+      author: 'Host',
+      cover_url: '',
+      current_time: 200,
+      duration: 3600,
+      episode_id: 'ep_7',
+      id: 'odd_pod',
+      media_type: 'book',
+      progress: 0.1,
+      title: 'Episodic Book',
+    };
+    expect(isPodcastItem(item)).toBe(true);
+  });
 });
 
 describe('resolveItemIds()', (): void => {
@@ -165,6 +180,41 @@ describe('resolveHeroCoverAndAuthor()', (): void => {
     expect(resolveHeroCoverAndAuthor(item)).toEqual({
       author: 'Show Title',
       coverId: 'pod_hero',
+      narrator: '',
+    });
+  });
+
+  it('uses podcast_title as author for podcast episodes', (): void => {
+    const episode: PodcastEpisode = {
+      duration: 100,
+      id: 'ep_cover',
+      podcast_id: 'pod_root',
+      podcast_title: 'Audiobook Show',
+      progress: 0,
+      title: 'Episode One',
+    };
+    expect(resolveHeroCoverAndAuthor(episode)).toEqual({
+      author: 'Audiobook Show',
+      coverId: 'pod_root',
+      narrator: '',
+    });
+  });
+
+  it('falls back to empty author when all author fields are blank', (): void => {
+    const item: InProgressItem = {
+      author: '',
+      cover_url: '',
+      current_time: 1,
+      duration: 10,
+      episode_title: null,
+      id: 'bare_book',
+      media_type: 'book',
+      progress: 1,
+      title: 'Bare Book',
+    };
+    expect(resolveHeroCoverAndAuthor(item)).toEqual({
+      author: '',
+      coverId: 'bare_book',
       narrator: '',
     });
   });
@@ -358,6 +408,57 @@ describe('hasNoNavigableChapters() and getCurrentChapter()', (): void => {
     expect(getCurrentChapter(chapters, 650, book)?.title).toBe('Chapter 2');
     expect(getCurrentChapter(chapters, 1500, book)?.title).toBe('Chapter 2');
   });
+
+  it('skips missing chapter entries while locating the current chapter', (): void => {
+    const book: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 3000,
+      id: 'b9',
+      media_type: 'book',
+      progress: 100,
+      title: 'Book With Gaps',
+    };
+    const sparseChapters: ChapterItem[] = [
+      undefined as unknown as ChapterItem,
+      { duration: 600, end: 1200, id: 2, start: 600, title: 'Chapter 2' },
+    ];
+    expect(getCurrentChapter(sparseChapters, 700, book)?.title).toBe('Chapter 2');
+  });
+
+  it('falls back to the first chapter when the position falls into a gap', (): void => {
+    const book: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 3000,
+      id: 'b10',
+      media_type: 'book',
+      progress: 100,
+      title: 'Gapped Book',
+    };
+    const gappedChapters: ChapterItem[] = [
+      { duration: 100, end: 100, id: 1, start: 0, title: 'Chapter 1' },
+      { duration: 100, end: 300, id: 3, start: 200, title: 'Chapter 3' },
+    ];
+    expect(getCurrentChapter(gappedChapters, 150, book)?.title).toBe('Chapter 1');
+  });
+
+  it('returns null when the first chapter entry is missing', (): void => {
+    const book: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 3000,
+      id: 'b11',
+      media_type: 'book',
+      progress: 100,
+      title: 'Gapped First Chapter',
+    };
+    const brokenChapters: ChapterItem[] = [
+      undefined as unknown as ChapterItem,
+      { duration: 100, end: 300, id: 3, start: 200, title: 'Chapter 3' },
+    ];
+    expect(getCurrentChapter(brokenChapters, 150, book)).toBeNull();
+  });
 });
 
 describe('findSavedItem()', (): void => {
@@ -464,6 +565,32 @@ describe('filterInProgress(), filterBooks() and filterPodcasts()', (): void => {
     expect(filterInProgress(items, 'unknown').length).toBe(0);
   });
 
+  it('falls back to empty strings when in-progress fields are blank', (): void => {
+    const sparseItems: InProgressItem[] = [
+      {
+        author: 'Blank Title Host',
+        cover_url: '',
+        current_time: 1,
+        duration: 10,
+        id: 's1',
+        media_type: 'book',
+        progress: 1,
+        title: '',
+      },
+      {
+        author: '',
+        cover_url: '',
+        current_time: 1,
+        duration: 10,
+        id: 's2',
+        media_type: 'book',
+        progress: 1,
+        title: 'Blank Author Book',
+      },
+    ];
+    expect(filterInProgress(sparseItems, 'blank').length).toBe(2);
+  });
+
   it('filters books by search query and progress state', (): void => {
     const books: MediaItem[] = [
       {
@@ -494,6 +621,46 @@ describe('filterInProgress(), filterBooks() and filterPodcasts()', (): void => {
     expect(filterBooks(books, 'Completed', 'all').length).toBe(1);
   });
 
+  it('falls back to empty strings when book fields are blank', (): void => {
+    const sparseBooks: MediaItem[] = [
+      {
+        author: 'Correct Author',
+        cover_url: '',
+        duration: 10,
+        id: 'fb1',
+        media_type: 'book',
+        progress: 1,
+        title: '',
+      },
+      {
+        author: '',
+        cover_url: '',
+        duration: 10,
+        id: 'fb2',
+        media_type: 'book',
+        progress: 1,
+        title: 'Correct Title',
+      },
+    ];
+    expect(filterBooks(sparseBooks, 'correct', 'all').length).toBe(2);
+  });
+
+  it('classifies finished books by progress when not flagged', (): void => {
+    const doneBook: MediaItem = {
+      author: 'Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'fin_by_progress',
+      is_finished: false,
+      media_type: 'book',
+      progress: 1000,
+      title: 'Done Book',
+    };
+    expect(filterBooks([doneBook], '', 'finished').map((b: MediaItem): string => b.id)).toEqual([
+      'fin_by_progress',
+    ]);
+  });
+
   it('filters podcasts by title and author', (): void => {
     const podcasts: MediaItem[] = [
       {
@@ -509,5 +676,29 @@ describe('filterInProgress(), filterBooks() and filterPodcasts()', (): void => {
     expect(filterPodcasts(podcasts, 'daily').length).toBe(1);
     expect(filterPodcasts(podcasts, 'news').length).toBe(1);
     expect(filterPodcasts(podcasts, 'sports').length).toBe(0);
+  });
+
+  it('falls back to empty strings when podcast fields are blank', (): void => {
+    const sparsePodcasts: MediaItem[] = [
+      {
+        author: 'Podcast Host',
+        cover_url: '',
+        duration: 10,
+        id: 'fp1',
+        media_type: 'podcast',
+        progress: 1,
+        title: '',
+      },
+      {
+        author: '',
+        cover_url: '',
+        duration: 10,
+        id: 'fp2',
+        media_type: 'podcast',
+        progress: 1,
+        title: 'Podcast Title',
+      },
+    ];
+    expect(filterPodcasts(sparsePodcasts, 'podcast').length).toBe(2);
   });
 });

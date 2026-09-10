@@ -20,6 +20,7 @@ describe('formatTime()', (): void => {
   it('formats hours, minutes and seconds as H:MM:SS', (): void => {
     expect(formatTime(3600)).toBe('1:00:00');
     expect(formatTime(3665)).toBe('1:01:05');
+    expect(formatTime(5415)).toBe('1:30:15');
     expect(formatTime(36000)).toBe('10:00:00');
   });
 

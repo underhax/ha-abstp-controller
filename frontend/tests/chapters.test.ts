@@ -165,4 +165,72 @@ describe('scrollToActiveChapter()', (): void => {
     scrollToActiveChapter(list);
     expect(list.scrollTop).toBe(50);
   });
+
+  it('computes offset from bounding rects when offsetParent differs from list', (): void => {
+    const list: HTMLDivElement = document.createElement('div');
+    list.className = 'chapters-list';
+
+    const item1: HTMLDivElement = document.createElement('div');
+    item1.className = 'chapter-item';
+    const item2: HTMLDivElement = document.createElement('div');
+    item2.className = 'chapter-item';
+    const item3: HTMLDivElement = document.createElement('div');
+    item3.className = 'chapter-item active';
+
+    list.appendChild(item1);
+    list.appendChild(item2);
+    list.appendChild(item3);
+
+    let scrollPos = 0;
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: (): number => scrollPos,
+      set: (val: number): void => {
+        scrollPos = val;
+      },
+    });
+    Object.defineProperty(item2, 'offsetParent', { value: null, writable: true });
+    Object.defineProperty(list, 'getBoundingClientRect', {
+      configurable: true,
+      value: (): { top: number; height: number } => ({ height: 100, top: 200 }),
+    });
+    Object.defineProperty(item2, 'getBoundingClientRect', {
+      configurable: true,
+      value: (): { top: number; height: number } => ({ height: 60, top: 300 }),
+    });
+
+    scrollToActiveChapter(list);
+    expect(list.scrollTop).toBe(100);
+  });
+
+  it('falls back to offsetTop difference when bounding rects are empty', (): void => {
+    const list: HTMLDivElement = document.createElement('div');
+    list.className = 'chapters-list';
+
+    const item1: HTMLDivElement = document.createElement('div');
+    item1.className = 'chapter-item';
+    const item2: HTMLDivElement = document.createElement('div');
+    item2.className = 'chapter-item';
+    const item3: HTMLDivElement = document.createElement('div');
+    item3.className = 'chapter-item active';
+
+    list.appendChild(item1);
+    list.appendChild(item2);
+    list.appendChild(item3);
+
+    let scrollPos = 0;
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: (): number => scrollPos,
+      set: (val: number): void => {
+        scrollPos = val;
+      },
+    });
+    Object.defineProperty(item2, 'offsetParent', { value: null, writable: true });
+    Object.defineProperty(item2, 'offsetTop', { value: 50, writable: true });
+    Object.defineProperty(list, 'offsetTop', { value: 20, writable: true });
+
+    scrollToActiveChapter(list);
+    expect(list.scrollTop).toBe(30);
+  });
 });

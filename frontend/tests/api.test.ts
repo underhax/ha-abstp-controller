@@ -4,9 +4,11 @@ import {
   fetchEpisodes,
   fetchLibrary,
   playOnSpeaker,
+  setCardPreference,
   setSpeakerMute,
   setSpeakerVolume,
   stopSpeaker,
+  subscribeCardPreference,
   subscribeLibraryUpdates,
 } from '../src/card/api.ts';
 import type { HomeAssistant, HomeAssistantConnection } from '../src/types.ts';
@@ -43,6 +45,63 @@ describe('subscribeLibraryUpdates()', (): void => {
       type: 'abstp_controller/subscribe_library_updates',
     });
     expect(result).toBe(unsubscribe);
+  });
+
+  it('provides a no-op unsubscribe when the connection is missing', async (): Promise<void> => {
+    const mockHass = {} as unknown as HomeAssistant;
+
+    const result = await subscribeLibraryUpdates(mockHass, vi.fn());
+
+    result();
+    expect(result).toBeTypeOf('function');
+  });
+});
+
+describe('subscribeCardPreference() and setCardPreference()', (): void => {
+  it('subscribes to coordinator card preference updates', async (): Promise<void> => {
+    const unsubscribe = vi.fn();
+    const connection: HomeAssistantConnection = {
+      subscribeMessage: vi.fn().mockResolvedValue(unsubscribe),
+    };
+    const mockHass = { connection } as unknown as HomeAssistant;
+    const callback = vi.fn();
+
+    const result = await subscribeCardPreference(mockHass, 'card_bedroom', callback);
+
+    expect(connection.subscribeMessage).toHaveBeenCalledWith(callback, {
+      card_id: 'card_bedroom',
+      type: 'abstp_controller/subscribe_card_preference',
+    });
+    expect(result).toBe(unsubscribe);
+  });
+
+  it('provides a no-op unsubscribe when the connection is missing', async (): Promise<void> => {
+    const mockHass = {} as unknown as HomeAssistant;
+
+    const result = await subscribeCardPreference(mockHass, 'card_bedroom', vi.fn());
+
+    result();
+    expect(result).toBeTypeOf('function');
+  });
+
+  it('persists the selected player via websocket', async (): Promise<void> => {
+    const mockHass = {
+      callWS: vi.fn().mockResolvedValue({
+        available_players: ['media_player.living_room'],
+        available_players_known: true,
+        card_id: 'card_bedroom',
+        selected_player: 'media_player.living_room',
+      }),
+    } as unknown as HomeAssistant;
+
+    const result = await setCardPreference(mockHass, 'card_bedroom', 'media_player.living_room');
+
+    expect(mockHass.callWS).toHaveBeenCalledWith({
+      card_id: 'card_bedroom',
+      selected_player: 'media_player.living_room',
+      type: 'abstp_controller/set_card_preference',
+    });
+    expect(result.selected_player).toBe('media_player.living_room');
   });
 });
 

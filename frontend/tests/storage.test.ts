@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAYBACK_SPEED } from '../src/card/constants.ts';
 import {
   getCardStorageKey,
@@ -44,6 +44,35 @@ describe('getStorageItem() and setStorageItem()', (): void => {
 
   it('returns null for missing keys', (): void => {
     expect(getStorageItem('non_existent')).toBeNull();
+  });
+
+  it('returns null when localStorage access throws', (): void => {
+    const getSpy = vi.spyOn(storageMock, 'getItem').mockImplementation((): string | null => {
+      throw new Error('blocked');
+    });
+
+    expect(getStorageItem('blocked_key')).toBeNull();
+
+    getSpy.mockRestore();
+  });
+
+  it('stores nothing when localStorage access throws', (): void => {
+    const setSpy = vi.spyOn(storageMock, 'setItem').mockImplementation((): void => {
+      throw new Error('blocked');
+    });
+
+    expect(() => setStorageItem('blocked_key', 'value')).not.toThrow();
+
+    setSpy.mockRestore();
+  });
+
+  it('handles a missing window global', (): void => {
+    vi.stubGlobal('window', undefined);
+
+    expect(getStorageItem('missing_key')).toBeNull();
+    expect(() => setStorageItem('missing_key', 'value')).not.toThrow();
+
+    vi.unstubAllGlobals();
   });
 });
 

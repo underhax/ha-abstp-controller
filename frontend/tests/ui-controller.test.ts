@@ -182,6 +182,180 @@ describe('UiController', (): void => {
     document.body.removeChild(hostEl);
   });
 
+  it('keeps the speed popover open when clicking the speed control button', (): void => {
+    const hostEl = document.createElement('div');
+    const childEl = document.createElement('span');
+    childEl.className = 'ctrl-btn-speed';
+    hostEl.appendChild(childEl);
+    document.body.appendChild(hostEl);
+
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showSpeedPopover = true;
+
+    childEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(ui.showSpeedPopover).toBe(true);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+  });
+
+  it('closes the volume popover and device menu when clicking outside the host', (): void => {
+    const hostEl = document.createElement('div');
+    document.body.appendChild(hostEl);
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showVolumePopover = true;
+    ui.showDeviceMenu = true;
+
+    const outsideTarget = document.createElement('div');
+    document.body.appendChild(outsideTarget);
+    outsideTarget.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+    expect(ui.showVolumePopover).toBe(false);
+    expect(ui.showDeviceMenu).toBe(false);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+    document.body.removeChild(outsideTarget);
+  });
+
+  it('keeps the volume popover open when clicking inside the volume popover', (): void => {
+    const hostEl = document.createElement('div');
+    const childEl = document.createElement('span');
+    childEl.className = 'volume-popover';
+    hostEl.appendChild(childEl);
+    document.body.appendChild(hostEl);
+
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showVolumePopover = true;
+
+    childEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(ui.showVolumePopover).toBe(true);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+  });
+
+  it('keeps the volume popover open when clicking the volume control button', (): void => {
+    const hostEl = document.createElement('div');
+    const childEl = document.createElement('span');
+    childEl.className = 'ctrl-btn-volume';
+    hostEl.appendChild(childEl);
+    document.body.appendChild(hostEl);
+
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showVolumePopover = true;
+
+    childEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(ui.showVolumePopover).toBe(true);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+  });
+
+  it('keeps the device menu open when clicking inside the device menu', (): void => {
+    const hostEl = document.createElement('div');
+    const childEl = document.createElement('span');
+    childEl.className = 'device-menu-popover';
+    hostEl.appendChild(childEl);
+    document.body.appendChild(hostEl);
+
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showDeviceMenu = true;
+
+    childEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(ui.showDeviceMenu).toBe(true);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+  });
+
+  it('keeps the device menu open when clicking the device badge', (): void => {
+    const hostEl = document.createElement('div');
+    const childEl = document.createElement('span');
+    childEl.className = 'device-badge';
+    hostEl.appendChild(childEl);
+    document.body.appendChild(hostEl);
+
+    const host = createMockHost(hostEl);
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showDeviceMenu = true;
+
+    childEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(ui.showDeviceMenu).toBe(true);
+
+    ui.hostDisconnected();
+    document.body.removeChild(hostEl);
+  });
+
+  it('closes all open popovers when the pointer path contains no element targets', (): void => {
+    const host = createMockHost();
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showSpeedPopover = true;
+    ui.showVolumePopover = true;
+    ui.showDeviceMenu = true;
+
+    window.dispatchEvent(new PointerEvent('pointerdown'));
+
+    expect(ui.showSpeedPopover).toBe(false);
+    expect(ui.showVolumePopover).toBe(false);
+    expect(ui.showDeviceMenu).toBe(false);
+
+    ui.hostDisconnected();
+  });
+
+  it('ignores non-Escape keys in the global keydown handler', (): void => {
+    const host = createMockHost();
+    const ui = new UiController(host);
+    ui.hostConnected();
+
+    ui.showVolumePopover = true;
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+    expect(ui.showVolumePopover).toBe(true);
+
+    ui.hostDisconnected();
+  });
+
+  it('closes the device menu and requests an update when the menu is open', (): void => {
+    const host = createMockHost();
+    const ui = new UiController(host);
+
+    ui.showDeviceMenu = true;
+
+    ui.closeDeviceMenu();
+    expect(ui.showDeviceMenu).toBe(false);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it('keeps the device menu closed when closing an already closed menu', (): void => {
+    const host = createMockHost();
+    const ui = new UiController(host);
+
+    ui.closeDeviceMenu();
+    expect(ui.showDeviceMenu).toBe(false);
+    expect(host.requestUpdate).not.toHaveBeenCalled();
+  });
+
   it('triggers onPageHide callback on pagehide event', (): void => {
     const host = createMockHost();
     const onPageHide = vi.fn();

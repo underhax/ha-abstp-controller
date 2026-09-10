@@ -254,6 +254,25 @@ describe('renderVolumeControls()', (): void => {
     muteBtn?.click();
     expect(onMute).toHaveBeenCalledTimes(1);
   });
+
+  it('renders mute label and sound-on icon inside popover when not muted', (): void => {
+    const context: VolumeControlsContext = {
+      isMuted: false,
+      lang: 'en',
+      onToggleMute: vi.fn(),
+      onToggleVolumePopover: vi.fn(),
+      onVolumeChange: vi.fn(),
+      showVolumePopover: true,
+      volumeLevel: 0.5,
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderVolumeControls(context), container);
+
+    const muteBtn: HTMLButtonElement | null = container.querySelector('.volume-popover .ctrl-btn');
+    expect(muteBtn?.getAttribute('title')).toBe('Mute');
+    expect(muteBtn?.querySelector('svg')).not.toBeNull();
+  });
 });
 
 describe('renderControlsBar()', (): void => {

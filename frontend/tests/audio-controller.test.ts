@@ -1,5 +1,6 @@
 import type { ReactiveControllerHost } from 'lit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_PLAYBACK_SPEED } from '../src/card/constants.ts';
 import { AudioController } from '../src/card/controllers/audio-controller.ts';
 import type { AbstpCardConfig, HomeAssistant } from '../src/types.ts';
 
@@ -149,5 +150,58 @@ describe('AudioController', (): void => {
     audio.syncPlaybackSpeed(1.0);
 
     expect(audio.currentSpeed).toBe(1.5);
+  });
+
+  it('initializes settings when connected', (): void => {
+    audio.hostConnected();
+
+    expect(audio.currentSpeed).toBe(1.25);
+  });
+
+  it('clears speed hold timers when disconnected', (): void => {
+    audio.speedHoldTimer = 1;
+    audio.speedHoldInterval = 2;
+
+    audio.hostDisconnected();
+
+    expect(audio.speedHoldTimer).toBeNull();
+    expect(audio.speedHoldInterval).toBeNull();
+  });
+
+  it('resets playback speed to the configured default', (): void => {
+    audio.currentSpeed = 1.9;
+    audio.markSpeedDirty();
+
+    audio.resetPlaybackSpeed();
+
+    expect(audio.currentSpeed).toBe(1.25);
+    audio.syncPlaybackSpeed(2.0);
+    expect(audio.currentSpeed).toBe(2.0);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it('resets playback speed to the constant default without config', (): void => {
+    const plainAudio = new AudioController(host, {
+      getConfig: (): AbstpCardConfig => ({ type: 'custom:abstp-player-card' }),
+    });
+    plainAudio.currentSpeed = 2.5;
+
+    plainAudio.resetPlaybackSpeed();
+
+    expect(plainAudio.currentSpeed).toBe(DEFAULT_PLAYBACK_SPEED);
+  });
+
+  it('updates volume without a speaker service call', async (): Promise<void> => {
+    await audio.setVolume(0.4, '', undefined);
+
+    expect(audio.volumeLevel).toBe(0.4);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it('toggles mute without a speaker service call', async (): Promise<void> => {
+    await audio.toggleMute('', undefined);
+
+    expect(audio.isMuted).toBe(true);
+    expect(host.requestUpdate).toHaveBeenCalled();
   });
 });

@@ -1,8 +1,15 @@
 import type { ReactiveControllerHost } from 'lit';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SPEAKER_TIMER_INTERVAL_MS } from '../src/card/constants.ts';
 import { AudioController } from '../src/card/controllers/audio-controller.ts';
 import { PlaybackController } from '../src/card/controllers/playback-controller.ts';
-import type { AbstpCardConfig, HomeAssistant, MediaItem } from '../src/types.ts';
+import type {
+  AbstpCardConfig,
+  HassEntity,
+  HomeAssistant,
+  MediaItem,
+  PodcastEpisode,
+} from '../src/types.ts';
 
 interface StorageMock {
   clear: () => void;
@@ -99,6 +106,10 @@ describe('PlaybackController', (): void => {
       getConfig: (): AbstpCardConfig => mockConfig,
       getHass: (): HomeAssistant => mockHass,
     });
+  });
+
+  afterEach((): void => {
+    vi.useRealTimers();
   });
 
   it('initializes selected player from configuration', (): void => {
@@ -558,5 +569,562 @@ describe('PlaybackController', (): void => {
     expect(playback.selectedPlayer).toBe('media_player.abstp_speaker_no_speed');
     expect(audio.currentSpeed).toBe(1.0);
     expect(mockHass.callService).not.toHaveBeenCalled();
+  });
+
+  it('initializes settings when the controller connects to the host', (): void => {
+    playback.hostConnected();
+
+    expect(playback.selectedPlayer).toBe('media_player.abstp_bedroom_speaker');
+  });
+
+  it('clears pending stop timeouts and stops the speaker timer when disconnected', (): void => {
+    playback.playbackStopTimeout = 1;
+    const stopTimerSpy = vi.spyOn(playback.speaker, 'stopTimer');
+
+    playback.hostDisconnected();
+
+    expect(playback.playbackStopTimeout).toBeNull();
+    expect(playback.awaitingPlaybackStop).toBe(false);
+    expect(stopTimerSpy).toHaveBeenCalled();
+  });
+
+  it('advances the playback position while the speaker timer ticks during active playback', (): void => {
+    vi.useFakeTimers();
+    playback.currentItem = {
+      author: 'Tick Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'tick_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Tick Book',
+    };
+    playback.isPlaying = true;
+    playback.playbackPosition = 100;
+    playback.playbackDuration = 1000;
+    audio.currentSpeed = 2.0;
+
+    playback.startSpeakerTimer();
+    vi.advanceTimersByTime(SPEAKER_TIMER_INTERVAL_MS);
+
+    expect(playback.playbackPosition).toBeGreaterThan(100);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it('keeps the playback position unchanged when the speaker timer ticks while not playing', (): void => {
+    vi.useFakeTimers();
+    playback.currentItem = {
+      author: 'Stall Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'stall_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Stall Book',
+    };
+    playback.isPlaying = false;
+    playback.playbackPosition = 100;
+    playback.playbackDuration = 1000;
+
+    playback.startSpeakerTimer();
+    vi.advanceTimersByTime(SPEAKER_TIMER_INTERVAL_MS);
+
+    expect(playback.playbackPosition).toBe(100);
+  });
+
+  it('keeps the playback position unchanged when the speaker timer ticks without a current item', (): void => {
+    vi.useFakeTimers();
+    playback.isPlaying = true;
+    playback.currentItem = null;
+    playback.playbackPosition = 100;
+
+    playback.startSpeakerTimer();
+    vi.advanceTimersByTime(SPEAKER_TIMER_INTERVAL_MS);
+
+    expect(playback.playbackPosition).toBe(100);
+  });
+
+  it('marks playback as playing when the speaker reports playing without pending requests', (): void => {
+    playback.currentItem = {
+      author: 'Direct Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'direct_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Direct Book',
+    };
+    playback.isPlaying = false;
+    playback.isBuffering = true;
+
+    playback.syncPlaybackState('playing');
+
+    expect(playback.isPlaying).toBe(true);
+    expect(playback.isBuffering).toBe(false);
+  });
+
+  it('keeps awaiting playback when the speaker is still not seen as playing', (): void => {
+    playback.awaitingPlaybackStart = true;
+    playback.speakerSawNonPlaying = false;
+    playback.isPlaying = false;
+    playback.isBuffering = false;
+
+    playback.syncPlaybackState('playing');
+
+    expect(playback.awaitingPlaybackStart).toBe(true);
+    expect(playback.isPlaying).toBe(false);
+    expect(playback.isBuffering).toBe(false);
+  });
+
+  it('transitions to playing once the speaker is seen playing during playback start', (): void => {
+    playback.currentItem = {
+      author: 'Await Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'await_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Await Book',
+    };
+    playback.awaitingPlaybackStart = true;
+    playback.speakerSawNonPlaying = true;
+    playback.isBuffering = true;
+    playback.isPlaying = false;
+
+    playback.syncPlaybackState('playing');
+
+    expect(playback.awaitingPlaybackStart).toBe(false);
+    expect(playback.isPlaying).toBe(true);
+    expect(playback.isBuffering).toBe(false);
+  });
+
+  it.each(['off', 'unavailable'])(
+    'stops playback when the speaker reports the %s state',
+    (state: string): void => {
+      playback.isPlaying = true;
+      playback.isBuffering = true;
+      playback.currentItem = {
+        author: 'Off Author',
+        cover_url: '',
+        duration: 1000,
+        id: 'off_book',
+        media_type: 'book',
+        progress: 0,
+        title: 'Off Book',
+      };
+      const stopTimerSpy = vi.spyOn(playback.speaker, 'stopTimer');
+
+      playback.syncPlaybackState(state);
+
+      expect(playback.isPlaying).toBe(false);
+      expect(playback.isBuffering).toBe(false);
+      expect(stopTimerSpy).toHaveBeenCalled();
+    },
+  );
+
+  it('stops playback when the speaker reports an idle state', (): void => {
+    playback.isPlaying = true;
+    playback.currentItem = {
+      author: 'Idle Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'idle_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Idle Book',
+    };
+
+    playback.syncPlaybackState('idle');
+
+    expect(playback.isPlaying).toBe(false);
+  });
+
+  it('returns early when hass is unavailable during item playback', async (): Promise<void> => {
+    playback = new PlaybackController(host, {
+      audio,
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): undefined => undefined,
+    });
+    const item: MediaItem = {
+      author: 'NoHass Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'nohass_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'NoHass Book',
+    };
+
+    await playback.playItem(item);
+
+    expect(playback.currentItem).toBeNull();
+  });
+
+  it('clears chapters when playing a podcast episode', async (): Promise<void> => {
+    const onClearChapters = vi.fn();
+    const onChaptersRequired = vi.fn();
+    playback = new PlaybackController(host, {
+      audio,
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      onChaptersRequired,
+      onClearChapters,
+    });
+    const episode: PodcastEpisode = {
+      duration: 600,
+      id: 'ep_1',
+      podcast_id: 'pod_1',
+      progress: 0,
+      title: 'Episode One',
+    };
+
+    await playback.playItem(episode);
+
+    expect(onClearChapters).toHaveBeenCalled();
+    expect(onChaptersRequired).not.toHaveBeenCalled();
+  });
+
+  it('resets buffering state when the speaker play service fails', async (): Promise<void> => {
+    mockHass.callService = vi.fn().mockRejectedValue(new Error('boom'));
+    const item: MediaItem = {
+      author: 'Fail Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'fail_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Fail Book',
+    };
+
+    await playback.playItem(item);
+
+    expect(playback.isBuffering).toBe(false);
+    expect(playback.isPlaying).toBe(false);
+    expect(playback.awaitingPlaybackStart).toBe(false);
+  });
+
+  it('starts playback when the delayed check sees the speaker playing', async (): Promise<void> => {
+    vi.useFakeTimers();
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    const item: MediaItem = {
+      author: 'Delay Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'delay_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Delay Book',
+    };
+
+    await playback.playItem(item);
+    (mockHass.states['media_player.abstp_bedroom_speaker'] as HassEntity).state = 'playing';
+
+    vi.advanceTimersByTime(2000);
+
+    expect(playback.awaitingPlaybackStart).toBe(false);
+    expect(playback.isPlaying).toBe(true);
+  });
+
+  it('keeps awaiting playback state when the delayed check sees a non-playing speaker', async (): Promise<void> => {
+    vi.useFakeTimers();
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    const item: MediaItem = {
+      author: 'Delay Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'delay_book_2',
+      media_type: 'book',
+      progress: 0,
+      title: 'Delay Book Two',
+    };
+
+    await playback.playItem(item);
+
+    vi.advanceTimersByTime(2000);
+
+    expect(playback.awaitingPlaybackStart).toBe(false);
+    expect(playback.isPlaying).toBe(false);
+  });
+
+  it('clears a pending stop timeout before scheduling a new one', async (): Promise<void> => {
+    vi.useFakeTimers();
+    playback.playbackStopTimeout = 1;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+
+    await playback.stop();
+
+    expect(playback.awaitingPlaybackStop).toBe(true);
+
+    vi.advanceTimersByTime(5000);
+
+    expect(playback.awaitingPlaybackStop).toBe(false);
+    expect(playback.playbackStopTimeout).toBeNull();
+  });
+
+  it('does nothing when toggling play without a current item', (): void => {
+    playback.currentItem = null;
+
+    playback.togglePlayPause();
+
+    expect(playback.isPlaying).toBe(false);
+    expect(mockHass.callService).not.toHaveBeenCalled();
+  });
+
+  it('returns early when restarting playback without a current item', async (): Promise<void> => {
+    playback.currentItem = null;
+    playback.playbackPosition = 150;
+
+    await playback.restartPlayback(700);
+
+    expect(playback.playbackPosition).toBe(700);
+  });
+
+  it('updates the current time on in-progress items during seek', async (): Promise<void> => {
+    playback.currentItem = {
+      author: 'IP Author',
+      cover_url: '',
+      current_time: 10,
+      duration: 1000,
+      id: 'ip_book',
+      media_type: 'book',
+      progress: 10,
+      title: 'IP Book',
+    };
+
+    await playback.seek(50);
+
+    expect(playback.playbackPosition).toBe(50);
+    expect(playback.currentItem?.current_time).toBe(50);
+    expect(playback.currentItem?.progress).toBe(50);
+  });
+
+  it('clears chapters when selecting a podcast episode', async (): Promise<void> => {
+    const onClearChapters = vi.fn();
+    const onChaptersRequired = vi.fn();
+    playback = new PlaybackController(host, {
+      audio,
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      onChaptersRequired,
+      onClearChapters,
+    });
+    const episode: PodcastEpisode = {
+      duration: 600,
+      id: 'ep_2',
+      podcast_id: 'pod_2',
+      progress: 0,
+      title: 'Episode Two',
+    };
+
+    await playback.selectItem(episode);
+
+    expect(onClearChapters).toHaveBeenCalled();
+    expect(onChaptersRequired).not.toHaveBeenCalled();
+  });
+
+  it('returns early when selecting the currently active player', async (): Promise<void> => {
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    const syncSpy = vi.spyOn(playback, 'syncPlayerState');
+
+    await playback.selectPlayer('media_player.abstp_bedroom_speaker');
+
+    expect(syncSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps its source position when seeking without a current item', async (): Promise<void> => {
+    playback.currentItem = null;
+
+    await playback.seek(50);
+
+    expect(playback.playbackPosition).toBe(50);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it('falls back to zero duration for items without a meaningful duration', async (): Promise<void> => {
+    const item: MediaItem = {
+      author: 'Zero Author',
+      cover_url: '',
+      duration: 0,
+      id: 'zero_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Zero Book',
+    };
+
+    await playback.selectItem(item);
+
+    expect(playback.playbackDuration).toBe(0);
+  });
+
+  it('starts the speaker timer when restoring an item into running playback', (): void => {
+    const startSpy = vi.spyOn(playback, 'startSpeakerTimer');
+    playback.isPlaying = true;
+    const item: MediaItem = {
+      author: 'Restore Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'restore_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Restore Book',
+    };
+
+    playback.restoreItem(item, 100, 1000, false);
+
+    expect(playback.isPlaying).toBe(true);
+    expect(startSpy).toHaveBeenCalled();
+  });
+
+  it('does not start the speaker timer when restoring an idle item', (): void => {
+    const startSpy = vi.spyOn(playback, 'startSpeakerTimer');
+    playback.isPlaying = false;
+    const item: MediaItem = {
+      author: 'Restore Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'restore_book_2',
+      media_type: 'book',
+      progress: 0,
+      title: 'Restore Book Two',
+    };
+
+    playback.restoreItem(item, 100, 1000, false);
+
+    expect(playback.isPlaying).toBe(false);
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it('prefers the configured player order when initializing settings', (): void => {
+    playback = new PlaybackController(host, {
+      audio,
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): HomeAssistant => mockHass,
+      getPlayerOrder: (): string[] => [
+        'media_player.abstp_bedroom_speaker',
+        'media_player.abstp_living_room',
+      ],
+    });
+
+    playback.hostConnected();
+
+    expect(playback.selectedPlayer).toBe('media_player.abstp_bedroom_speaker');
+  });
+
+  it('stops without speaker service when hass is unavailable', async (): Promise<void> => {
+    vi.useFakeTimers();
+    playback = new PlaybackController(host, {
+      audio,
+      getConfig: (): AbstpCardConfig => mockConfig,
+      getHass: (): undefined => undefined,
+    });
+
+    await playback.stop();
+
+    expect(playback.awaitingPlaybackStop).toBe(true);
+
+    vi.advanceTimersByTime(5000);
+
+    expect(playback.awaitingPlaybackStop).toBe(false);
+    expect(playback.playbackStopTimeout).toBeNull();
+  });
+
+  it('restarts playback from the stored position when no target is given', async (): Promise<void> => {
+    playback.currentItem = {
+      author: 'NoTarget Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'notarget_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'NoTarget Book',
+    };
+    playback.playbackPosition = 400;
+
+    await playback.restartPlayback();
+
+    expect(playback.playbackPosition).toBe(400);
+    expect(playback.awaitingPlaybackStart).toBe(true);
+  });
+
+  it('ignores a stale delayed check once awaiting playback is cleared', async (): Promise<void> => {
+    vi.useFakeTimers();
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    const item: MediaItem = {
+      author: 'Stale Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'stale_book',
+      media_type: 'book',
+      progress: 0,
+      title: 'Stale Book',
+    };
+
+    await playback.playItem(item);
+    playback.awaitingPlaybackStart = false;
+
+    vi.advanceTimersByTime(2000);
+
+    expect(playback.isPlaying).toBe(false);
+  });
+
+  it('marks playback as playing without channels when no current item is set', (): void => {
+    playback.currentItem = null;
+    playback.isPlaying = false;
+
+    playback.syncPlaybackState('playing');
+
+    expect(playback.isPlaying).toBe(true);
+  });
+
+  it.each(['paused', 'standby', 'buffering'])(
+    'handles playback when the speaker reports the %s state',
+    (state: string): void => {
+      playback.isPlaying = true;
+      playback.currentItem = {
+        author: 'Half Author',
+        cover_url: '',
+        duration: 1000,
+        id: 'half_book',
+        media_type: 'book',
+        progress: 0,
+        title: 'Half Book',
+      };
+
+      playback.syncPlaybackState(state);
+
+      expect(playback.isPlaying).toBe(false);
+    },
+  );
+
+  it('leaves playback untouched for unrecognized speaker states', (): void => {
+    playback.isPlaying = true;
+
+    playback.syncPlaybackState('stopped');
+
+    expect(playback.isPlaying).toBe(true);
+  });
+
+  it('reads speaker speed when volume attributes are absent', (): void => {
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: { playback_speed: 1.2 },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'idle',
+    } as HassEntity;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    const volumeSpy = vi.spyOn(audio, 'syncSpeakerVolume');
+
+    playback.syncPlayerState();
+
+    expect(volumeSpy).toHaveBeenCalledWith(undefined, undefined);
+  });
+
+  it('keeps playing state when the speaker reports playing repeatedly', (): void => {
+    playback.currentItem = null;
+    playback.isPlaying = true;
+
+    playback.syncPlaybackState('playing');
+
+    expect(playback.isPlaying).toBe(true);
+    expect(playback.isBuffering).toBe(false);
   });
 });

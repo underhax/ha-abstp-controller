@@ -13,6 +13,7 @@ import {
   renderTabsBar,
   type TabsBarContext,
 } from '../src/card/templates/library.ts';
+import { localize } from '../src/localize.ts';
 import type { AbstpCardConfig, InProgressItem, MediaItem, PodcastEpisode } from '../src/types.ts';
 
 const mockConfig: AbstpCardConfig = {
@@ -90,6 +91,47 @@ const mockFinishedEpisode: PodcastEpisode = {
   is_finished: true,
   progress: 600,
   title: 'Intro Episode',
+};
+
+const mockZeroDurationInProgress: InProgressItem = {
+  author: 'Author Zero',
+  cover_url: '',
+  current_time: 0,
+  duration: 0,
+  id: 'item-zero-dur',
+  media_type: 'book',
+  progress: 0,
+  title: 'Zero Duration Item',
+};
+
+const mockPodcastNoEpisodeTitle: InProgressItem = {
+  author: 'Host Name',
+  cover_url: '',
+  current_time: 100,
+  duration: 200,
+  id: 'item-podcast-noep',
+  media_type: 'podcast',
+  progress: 100,
+  title: 'Podcast Without Episode Title',
+};
+
+const mockZeroDurationBook: MediaItem = {
+  author: 'Author Zero',
+  cover_url: '',
+  duration: 0,
+  id: 'book-zero',
+  is_finished: false,
+  media_type: 'book',
+  progress: 0,
+  title: 'Zero Duration Book',
+};
+
+const mockNoProgressEpisode: PodcastEpisode = {
+  duration: 0,
+  id: 'ep-zero',
+  is_finished: false,
+  progress: 0,
+  title: 'No Progress Episode',
 };
 
 describe('renderTabsBar()', (): void => {
@@ -184,6 +226,31 @@ describe('renderTabsBar()', (): void => {
     expect(buttons.length).toBe(2);
   });
 
+  it('highlights podcasts tab when activeTab is podcasts', (): void => {
+    const context: TabsBarContext = {
+      activeTab: 'podcasts',
+      config: mockConfig,
+      filteredBooksCount: 0,
+      filteredInProgressCount: 0,
+      filteredPodcastsCount: 3,
+      hasInProgressItems: false,
+      isRefreshing: false,
+      lang: 'en',
+      onRefresh: vi.fn(),
+      onTabBooks: vi.fn(),
+      onTabInProgress: vi.fn(),
+      onTabPodcasts: vi.fn(),
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderTabsBar(context), container);
+
+    const buttons: NodeListOf<HTMLButtonElement> =
+      container.querySelectorAll('.tabs-group .tab-btn');
+    expect(buttons.length).toBe(2);
+    expect(buttons[1]?.classList.contains('active')).toBe(true);
+  });
+
   it('respects hide_books and hide_podcasts config settings', (): void => {
     const context: TabsBarContext = {
       activeTab: 'in_progress',
@@ -251,6 +318,26 @@ describe('renderInProgressCard()', (): void => {
     img?.dispatchEvent(new Event('error'));
     expect(img?.style.display).toBe('none');
   });
+
+  it('renders card without progress bar when duration is zero', (): void => {
+    const result: TemplateResult = renderInProgressCard(mockZeroDurationInProgress, null, vi.fn());
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.progress-bar-fill')).toBeNull();
+    expect(container.querySelector('.card-title')?.textContent).toBe('Zero Duration Item');
+  });
+
+  it('falls back to item title when podcast has no episode_title', (): void => {
+    const result: TemplateResult = renderInProgressCard(mockPodcastNoEpisodeTitle, null, vi.fn());
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.card-title')?.textContent).toBe(
+      'Podcast Without Episode Title',
+    );
+    expect(container.querySelector('.media-card')?.classList.contains('active')).toBe(false);
+  });
 });
 
 describe('renderInProgressGrid()', (): void => {
@@ -309,6 +396,15 @@ describe('renderBooksGrid()', (): void => {
     img?.dispatchEvent(new Event('error'));
     expect(img?.style.display).toBe('none');
   });
+
+  it('renders book without progress bar when not finished and progress is zero', (): void => {
+    const result: TemplateResult = renderBooksGrid([mockZeroDurationBook], null, 'en', vi.fn());
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.progress-bar-fill')).toBeNull();
+    expect(container.querySelector('.card-title')?.textContent).toBe('Zero Duration Book');
+  });
 });
 
 describe('renderPodcastEpisodesGrid()', (): void => {
@@ -334,6 +430,20 @@ describe('renderPodcastEpisodesGrid()', (): void => {
     const img: HTMLImageElement | null = cards[0]?.querySelector('img') ?? null;
     img?.dispatchEvent(new Event('error'));
     expect(img?.style.display).toBe('none');
+  });
+
+  it('renders episode without progress bar when not finished and progress is zero', (): void => {
+    const result: TemplateResult = renderPodcastEpisodesGrid(
+      [mockNoProgressEpisode],
+      'podcast-1',
+      null,
+      vi.fn(),
+    );
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.progress-bar-fill')).toBeNull();
+    expect(container.querySelector('.card-title')?.textContent).toBe('No Progress Episode');
   });
 });
 
@@ -447,6 +557,46 @@ describe('renderPodcastsView()', (): void => {
     expect(episodeCard).not.toBeNull();
     episodeCard?.click();
     expect(onSelect).toHaveBeenCalledWith(mockEpisode);
+  });
+
+  it('falls back to localize when selected podcast is not found', (): void => {
+    const context: PodcastsViewContext = {
+      episodes: {},
+      isRefreshing: false,
+      lang: 'en',
+      onBackToPodcasts: vi.fn(),
+      onSelectItem: vi.fn(),
+      onSelectPodcast: vi.fn(),
+      podcasts: [],
+      selectedPodcastId: 'missing-id',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderPodcastsView(context), container);
+
+    expect(container.querySelector('.podcast-header-title')?.textContent).toBe(
+      localize('card.podcasts', 'en'),
+    );
+  });
+
+  it('highlights active podcast card when currentItem matches', (): void => {
+    const context: PodcastsViewContext = {
+      currentItem: mockPodcast,
+      episodes: {},
+      isRefreshing: false,
+      lang: 'en',
+      onBackToPodcasts: vi.fn(),
+      onSelectItem: vi.fn(),
+      onSelectPodcast: vi.fn(),
+      podcasts: [mockPodcast],
+      selectedPodcastId: null,
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderPodcastsView(context), container);
+
+    const card: HTMLElement | null = container.querySelector('.media-card');
+    expect(card?.classList.contains('active')).toBe(true);
   });
 });
 

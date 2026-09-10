@@ -121,6 +121,10 @@ describe('calculateSpeakerProgress()', (): void => {
   it('clamps to duration when reaching end', (): void => {
     expect(calculateSpeakerProgress(3599.5, 3600, 1.0)).toBe(3600);
   });
+
+  it('advances freely when duration is unknown', (): void => {
+    expect(calculateSpeakerProgress(100, 0, 1.0)).toBe(101);
+  });
 });
 
 describe('clampVolume()', (): void => {
