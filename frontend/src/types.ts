@@ -78,6 +78,7 @@ export interface HassEntity {
     media_artist?: string;
     media_duration?: number;
     media_position?: number;
+    media_position_updated_at?: string;
     media_title?: string;
     playback_speed?: number;
     volume_level?: number;

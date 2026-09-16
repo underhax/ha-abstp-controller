@@ -46,3 +46,27 @@ export function calculateSpeakerProgress(
 export function clampVolume(volume: number): number {
   return Math.round(Math.min(1.0, Math.max(0.0, volume)) * 10) / 10;
 }
+
+export function calculateEstimatedPosition(
+  mediaPosition: number | undefined,
+  positionUpdatedAt: string | undefined,
+  speed: number,
+  duration: number,
+): number | null {
+  if (typeof mediaPosition !== 'number' || !Number.isFinite(mediaPosition)) {
+    return null;
+  }
+  let estimated: number = mediaPosition;
+  if (positionUpdatedAt) {
+    const updatedAtMs: number = Date.parse(positionUpdatedAt);
+    if (!Number.isNaN(updatedAtMs)) {
+      const elapsedSec: number = Math.max(0, (Date.now() - updatedAtMs) / 1000);
+      const effectiveSpeed: number = speed > 0 ? speed : DEFAULT_PLAYBACK_SPEED;
+      estimated += elapsedSec * effectiveSpeed;
+    }
+  }
+  if (duration > 0) {
+    return Math.min(duration, Math.max(0, estimated));
+  }
+  return Math.max(0, estimated);
+}

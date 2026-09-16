@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  calculateEstimatedPosition,
   calculateNextSpeed,
   calculateSkipPosition,
   calculateSpeakerProgress,
@@ -139,5 +140,56 @@ describe('clampVolume()', (): void => {
 
   it('clamps volume above one to one', (): void => {
     expect(clampVolume(1.5)).toBe(1.0);
+  });
+});
+
+describe('calculateEstimatedPosition()', (): void => {
+  it('returns null when media position is not finite or missing', (): void => {
+    expect(calculateEstimatedPosition(undefined, undefined, 1.0, 100)).toBeNull();
+    expect(calculateEstimatedPosition(Number.NaN, undefined, 1.0, 100)).toBeNull();
+  });
+
+  it('returns media position directly when position timestamp is absent', (): void => {
+    expect(calculateEstimatedPosition(50, undefined, 1.0, 100)).toBe(50);
+  });
+
+  it('returns media position directly when position timestamp cannot be parsed', (): void => {
+    expect(calculateEstimatedPosition(50, 'invalid-date', 1.0, 100)).toBe(50);
+  });
+
+  it('extrapolates elapsed time since timestamp using configured speed', (): void => {
+    const epochIso: string = new Date(0).toISOString();
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(10000);
+    const result: number | null = calculateEstimatedPosition(50, epochIso, 1.5, 300);
+    dateSpy.mockRestore();
+
+    expect(result).toBe(65);
+  });
+
+  it('clamps extrapolated position to track duration', (): void => {
+    const epochIso: string = new Date(0).toISOString();
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(20000);
+    const result: number | null = calculateEstimatedPosition(95, epochIso, 1.0, 100);
+    dateSpy.mockRestore();
+
+    expect(result).toBe(100);
+  });
+
+  it('allows position to advance freely when duration is zero', (): void => {
+    const epochIso: string = new Date(0).toISOString();
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(5000);
+    const result: number | null = calculateEstimatedPosition(10, epochIso, 1.0, 0);
+    dateSpy.mockRestore();
+
+    expect(result).toBe(15);
+  });
+
+  it('falls back to default speed when speed is zero or negative', (): void => {
+    const epochIso: string = new Date(0).toISOString();
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(10000);
+    const result: number | null = calculateEstimatedPosition(50, epochIso, 0, 300);
+    dateSpy.mockRestore();
+
+    expect(result).toBe(60);
   });
 });

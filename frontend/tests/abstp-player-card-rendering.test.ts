@@ -445,3 +445,29 @@ describe('AbstpPlayerCard chapters rendering', (): void => {
     expect(seekSpy).toHaveBeenCalledWith(0);
   });
 });
+
+describe('AbstpPlayerCard unavailable rendering', (): void => {
+  afterEach((): void => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('renders unavailable layout when target player is unavailable', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.setConfig(cardConfig());
+    const hass = createHass();
+    hass.states[LIVING] = {
+      attributes: { friendly_name: 'Living Room', target_available: false },
+      entity_id: LIVING,
+      state: 'unavailable',
+    };
+    card.hass = hass;
+    card.ui.showLibrary = true;
+    document.body.append(card);
+    await card.updateComplete;
+
+    const haCard = card.renderRoot.querySelector('ha-card');
+    expect(haCard?.classList.contains('unavailable')).toBe(true);
+    expect(card.renderRoot.querySelector('.library-section')).toBeNull();
+  });
+});

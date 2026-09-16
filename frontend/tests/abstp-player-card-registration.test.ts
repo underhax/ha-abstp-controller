@@ -8,20 +8,24 @@ type WindowWithCards = Window & {
   }>;
 };
 
-describe('AbstpPlayerCard registration', (): void => {
+describe('AbstpPlayerCard', (): void => {
   afterEach((): void => {
     delete (window as WindowWithCards).customCards;
   });
 
-  it('appends its type when another custom card is already registered', async (): Promise<void> => {
+  it('preserves existing card registrations without duplicates', async (): Promise<void> => {
     (window as WindowWithCards).customCards = [
-      { description: 'Legacy', name: 'Legacy Card', type: 'custom:legacy' },
+      {
+        description: 'Audiobookshelf Player',
+        name: 'Audiobookshelf Player',
+        type: 'abstp-player-card',
+      },
     ];
 
     await import('../src/abstp-player-card.ts');
 
     const cards = (window as WindowWithCards).customCards ?? [];
-    expect(cards).toHaveLength(2);
-    expect(cards.some((card): boolean => card.type === 'abstp-player-card')).toBe(true);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.type).toBe('abstp-player-card');
   });
 });

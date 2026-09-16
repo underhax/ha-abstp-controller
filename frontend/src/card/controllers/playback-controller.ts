@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit';
 import type {
   AbstpCardConfig,
+  HassEntity,
   HomeAssistant,
   InProgressItem,
   MediaItem,
@@ -8,6 +9,7 @@ import type {
 } from '../../types.ts';
 import { isPodcastItem, resolveInitialPosition, resolveItemIds } from '../media.ts';
 import {
+  calculateEstimatedPosition,
   calculateSkipPosition,
   calculateSpeakerProgress,
   resolvePlayPosition,
@@ -41,6 +43,7 @@ export class PlaybackController implements ReactiveController {
   public awaitingPlaybackStop: boolean = false;
   public playbackStopTimeout: number | null = null;
   public speakerSawNonPlaying: boolean = false;
+  public isSeeking: boolean = false;
 
   public constructor(host: ReactiveControllerHost, options: PlaybackControllerOptions) {
     this.host = host;
@@ -62,6 +65,8 @@ export class PlaybackController implements ReactiveController {
 
   public hostConnected(): void {
     this.initSettings();
+    this.syncPlayerState();
+    this.ensureSpeakerTimer();
   }
 
   public hostDisconnected(): void {
@@ -102,6 +107,18 @@ export class PlaybackController implements ReactiveController {
     this.speaker.stopTimer();
   }
 
+  public ensureSpeakerTimer(): void {
+    if (this.isPlaying && this.currentItem && this.speaker.timer === null) {
+      this.startSpeakerTimer();
+      this.host.requestUpdate();
+    }
+  }
+
+  public handleVisibilityChange(): void {
+    this.syncPlayerState();
+    this.ensureSpeakerTimer();
+  }
+
   private handleSpeakerPlaying(): void {
     this.isBuffering = false;
     if (!this.isPlaying) {
@@ -109,6 +126,9 @@ export class PlaybackController implements ReactiveController {
       if (this.currentItem) {
         this.startSpeakerTimer();
       }
+      this.host.requestUpdate();
+    } else if (this.speaker.timer === null && this.currentItem) {
+      this.startSpeakerTimer();
       this.host.requestUpdate();
     }
   }
@@ -161,6 +181,33 @@ export class PlaybackController implements ReactiveController {
     this.host.requestUpdate();
   }
 
+  public syncPlaybackPosition(entity: HassEntity): void {
+    if (this.isSeeking || this.awaitingPlaybackStart || this.awaitingPlaybackStop) {
+      return;
+    }
+    const isPlaying: boolean = entity.state === 'playing';
+    if (!isPlaying && !this.isPlaying) {
+      return;
+    }
+    const attrs = entity.attributes;
+    const estimated: number | null = calculateEstimatedPosition(
+      typeof attrs.media_position === 'number' ? attrs.media_position : undefined,
+      typeof attrs.media_position_updated_at === 'string'
+        ? attrs.media_position_updated_at
+        : undefined,
+      this.audio.currentSpeed,
+      this.playbackDuration ||
+        (typeof attrs.media_duration === 'number' ? attrs.media_duration : 0),
+    );
+    if (estimated === null) {
+      return;
+    }
+    if (this.speaker.timer === null || Math.abs(estimated - this.playbackPosition) >= 2) {
+      this.playbackPosition = estimated;
+      this.host.requestUpdate();
+    }
+  }
+
   public syncPlayerState(): void {
     const hass: HomeAssistant | undefined = this.options.getHass();
     const entity = hass?.states[this.selectedPlayer];
@@ -176,6 +223,7 @@ export class PlaybackController implements ReactiveController {
       typeof attrs.playback_speed === 'number' ? attrs.playback_speed : undefined,
     );
     this.syncPlaybackState(entity.state);
+    this.syncPlaybackPosition(entity);
   }
 
   public async playItem(
@@ -309,6 +357,7 @@ export class PlaybackController implements ReactiveController {
   }
 
   public async seek(newPosition: number): Promise<void> {
+    this.isSeeking = false;
     this.playbackPosition = newPosition;
     if (this.currentItem) {
       if ('current_time' in this.currentItem) {
@@ -415,6 +464,7 @@ export class PlaybackController implements ReactiveController {
   }
 
   public setPlaybackPosition(pos: number): void {
+    this.isSeeking = true;
     this.playbackPosition = pos;
     this.host.requestUpdate();
   }

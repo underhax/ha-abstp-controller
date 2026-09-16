@@ -26,6 +26,10 @@ export class SpeakerCoordinator {
     }
   }
 
+  public isTimerRunning(): boolean {
+    return this.timer !== null;
+  }
+
   public static syncState(
     entity: HassEntity | undefined,
     callbacks: SpeakerSyncCallbacks,

@@ -115,9 +115,7 @@ function config(cardId?: string): AbstpCardConfig {
     player_entities: [LIVING, KITCHEN],
     type: 'custom:abstp-player-card',
   };
-  return cardId === undefined
-    ? base
-    : { ...base, card_id: cardId };
+  return cardId === undefined ? base : { ...base, card_id: cardId };
 }
 
 const realSetTimeout: typeof globalThis.setTimeout = globalThis.setTimeout;
@@ -283,6 +281,35 @@ describe('AbstpPlayerCard controller wiring', (): void => {
     expect(card.ui.showChapters).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith('book-1');
+  });
+
+  it('skips chapter fetch when chapters panel opens without an active item', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.hass = createHass();
+    card.setConfig(config('card-1'));
+    card.playback.currentItem = null;
+    const fetchSpy = vi.spyOn(card.library, 'fetchChapters').mockResolvedValue(undefined);
+
+    card.ui.toggleChapters(false);
+    await flushAsync();
+
+    expect(card.ui.showChapters).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips chapter fetch when chapters are already loaded for the current book', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    card.hass = createHass();
+    card.setConfig(config('card-1'));
+    card.playback.currentItem = bookItem;
+    card.library.chaptersBookId = 'book-1';
+    const fetchSpy = vi.spyOn(card.library, 'fetchChapters').mockResolvedValue(undefined);
+
+    card.ui.toggleChapters(false);
+    await flushAsync();
+
+    expect(card.ui.showChapters).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('emits a pagehide signal to the page hide handler', async (): Promise<void> => {
@@ -909,6 +936,22 @@ describe('AbstpPlayerCard visibility refresh', (): void => {
     expect(fetchSpy).toHaveBeenCalledWith(true);
   });
 
+  it('ignores visibility changes when the page is hidden', async (): Promise<void> => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    await mountCard(asCard(card), createHass(createConnection()), config('card-1'));
+    const fetchSpy = vi.spyOn(card.library, 'fetchLibrary').mockResolvedValue(undefined);
+    const playbackSpy = vi.spyOn(card.playback, 'handleVisibilityChange');
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+
+    asCard(card).handleVisibilityChange();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(playbackSpy).not.toHaveBeenCalled();
+  });
+
   it('skips the background refresh during playback', async (): Promise<void> => {
     const card: AbstpPlayerCard = new AbstpPlayerCard();
     card.setConfig(config('card-1'));
@@ -978,5 +1021,16 @@ describe('AbstpPlayerCard connection cleanup', (): void => {
     expect(asCard(card).cardPreferenceId).toBe('');
     expect(asCard(card).cardPreferenceReady).toBe(false);
     expect(asCard(card).cardPlayerOrder).toEqual([]);
+  });
+
+  it('handles disconnection safely when refresh interval is already cleared', (): void => {
+    const card: AbstpPlayerCard = new AbstpPlayerCard();
+    expect(asCard(card).libraryRefreshInterval).toBeNull();
+
+    expect((): void => {
+      card.disconnectedCallback();
+    }).not.toThrow();
+
+    expect(asCard(card).libraryRefreshInterval).toBeNull();
   });
 });

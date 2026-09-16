@@ -78,6 +78,17 @@ describe('SpeakerCoordinator', (): void => {
     expect(coordinator.timer).toBeNull();
   });
 
+  it('reports whether the timer is currently active', (): void => {
+    const coordinator = new SpeakerCoordinator();
+    expect(coordinator.isTimerRunning()).toBe(false);
+
+    coordinator.startTimer(vi.fn());
+    expect(coordinator.isTimerRunning()).toBe(true);
+
+    coordinator.stopTimer();
+    expect(coordinator.isTimerRunning()).toBe(false);
+  });
+
   it('returns early when no entity is provided', (): void => {
     const callbacks = createCallbacks();
 

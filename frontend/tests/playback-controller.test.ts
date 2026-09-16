@@ -577,6 +577,172 @@ describe('PlaybackController', (): void => {
     expect(playback.selectedPlayer).toBe('media_player.abstp_bedroom_speaker');
   });
 
+  it('restores the speaker timer on host connected when playback is active', (): void => {
+    playback.isPlaying = true;
+    playback.currentItem = {
+      author: 'Resume Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'resume_book',
+      media_type: 'book',
+      progress: 100,
+      title: 'Resume Book',
+    };
+    const entity = mockHass.states['media_player.abstp_bedroom_speaker'];
+    if (entity) {
+      entity.state = 'playing';
+    }
+    const startTimerSpy = vi.spyOn(playback.speaker, 'startTimer');
+
+    playback.hostConnected();
+
+    expect(startTimerSpy).toHaveBeenCalled();
+  });
+
+  it('restores the speaker timer on visibility change when playback is active', (): void => {
+    playback.isPlaying = true;
+    playback.currentItem = {
+      author: 'Visibility Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'visibility_book',
+      media_type: 'book',
+      progress: 200,
+      title: 'Visibility Book',
+    };
+    const entity = mockHass.states['media_player.abstp_bedroom_speaker'];
+    if (entity) {
+      entity.state = 'playing';
+    }
+    const startTimerSpy = vi.spyOn(playback.speaker, 'startTimer');
+
+    playback.handleVisibilityChange();
+
+    expect(startTimerSpy).toHaveBeenCalled();
+  });
+
+  it('restarts the speaker timer in handleSpeakerPlaying if already playing but timer is stopped', (): void => {
+    playback.isPlaying = true;
+    playback.currentItem = {
+      author: 'Heal Author',
+      cover_url: '',
+      duration: 3600,
+      id: 'heal_book',
+      media_type: 'book',
+      progress: 300,
+      title: 'Heal Book',
+    };
+    playback.speaker.stopTimer();
+    const startTimerSpy = vi.spyOn(playback.speaker, 'startTimer');
+
+    playback.syncPlaybackState('playing');
+
+    expect(startTimerSpy).toHaveBeenCalled();
+  });
+
+  it('synchronizes playback position from media position attributes when active', (): void => {
+    const epochIso: string = new Date(0).toISOString();
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(10000);
+    playback.isPlaying = true;
+    playback.playbackPosition = 50;
+    playback.playbackDuration = 1000;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: {
+        media_position: 100,
+        media_position_updated_at: epochIso,
+        playback_speed: 1.0,
+      },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'playing',
+    };
+
+    playback.syncPlayerState();
+    dateSpy.mockRestore();
+
+    expect(playback.playbackPosition).toBe(110);
+  });
+
+  it('suppresses position synchronization while user is actively seeking', (): void => {
+    playback.isPlaying = true;
+    playback.playbackPosition = 50;
+    playback.isSeeking = true;
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: {
+        media_position: 200,
+      },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'playing',
+    };
+
+    playback.syncPlayerState();
+
+    expect(playback.playbackPosition).toBe(50);
+  });
+
+  it('keeps current position when drift is smaller than threshold during running timer', (): void => {
+    playback.isPlaying = true;
+    playback.playbackPosition = 50;
+    playback.playbackDuration = 1000;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    playback.speaker.startTimer(vi.fn());
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: {
+        media_position: 50.8,
+      },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'playing',
+    };
+
+    playback.syncPlayerState();
+
+    expect(playback.playbackPosition).toBe(50);
+  });
+
+  it('handles position synchronization when track duration and attribute duration are both absent', (): void => {
+    playback.isPlaying = true;
+    playback.playbackPosition = 10;
+    playback.playbackDuration = 0;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: {
+        media_position: 25,
+      },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'playing',
+    };
+
+    playback.syncPlayerState();
+
+    expect(playback.playbackPosition).toBe(25);
+  });
+
+  it('falls back to attribute media duration when track duration is zero', (): void => {
+    playback.isPlaying = true;
+    playback.playbackPosition = 10;
+    playback.playbackDuration = 0;
+    playback.selectedPlayer = 'media_player.abstp_bedroom_speaker';
+    mockHass.states['media_player.abstp_bedroom_speaker'] = {
+      attributes: {
+        media_duration: 3600,
+        media_position: 25,
+      },
+      entity_id: 'media_player.abstp_bedroom_speaker',
+      state: 'playing',
+    };
+
+    playback.syncPlayerState();
+
+    expect(playback.playbackPosition).toBe(25);
+  });
+
+  it('selects empty string when no allowed players are available during init', (): void => {
+    mockConfig.player_entities = ['media_player.non_existent'];
+    playback.hostConnected();
+
+    expect(playback.selectedPlayer).toBe('');
+  });
+
   it('clears pending stop timeouts and stops the speaker timer when disconnected', (): void => {
     playback.playbackStopTimeout = 1;
     const stopTimerSpy = vi.spyOn(playback.speaker, 'stopTimer');

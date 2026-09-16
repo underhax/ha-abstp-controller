@@ -280,6 +280,7 @@ export class AbstpPlayerCard extends LitElement {
   private handleVisibilityChange = (): void => {
     if (document.visibilityState === 'visible') {
       this.refreshLibraryInBackground();
+      this.playback.handleVisibilityChange();
     }
   };
 
@@ -339,13 +340,16 @@ export class AbstpPlayerCard extends LitElement {
     const selectedPlayer: string | null = event.selected_player;
     const isPlayerAvailable = (id: string): boolean =>
       id === '' || !event.available_players_known || availablePlayers.has(id);
-    const selectedIsValid: boolean =
+    let selectedIsValid: boolean = false;
+    let nextPlayer: string = allowedPlayers.find(isPlayerAvailable) ?? '';
+    if (
       selectedPlayer !== null &&
       allowedPlayers.includes(selectedPlayer) &&
-      isPlayerAvailable(selectedPlayer);
-    const nextPlayer: string = selectedIsValid
-      ? (selectedPlayer ?? '')
-      : (allowedPlayers.find(isPlayerAvailable) ?? '');
+      isPlayerAvailable(selectedPlayer)
+    ) {
+      selectedIsValid = true;
+      nextPlayer = selectedPlayer;
+    }
     this.cardPreferenceSelectedPlayer = nextPlayer;
     this.requestUpdate();
     if (selectedPlayer !== null && !selectedIsValid && !this.cardPreferenceRepairing) {
