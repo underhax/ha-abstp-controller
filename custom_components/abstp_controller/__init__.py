@@ -1,6 +1,7 @@
 """The Audiobookshelf Transcoder Proxy Controller integration."""
 
 import asyncio
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, override
 
 from aiohttp import ClientError, ClientTimeout, web
@@ -151,6 +152,15 @@ def _get_active_tracker(hass: HomeAssistant) -> SessionTracker | None:
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _ValidatedStreamRequest:
+    """Validated context for an audio stream proxy request."""
+
+    tracker: SessionTracker
+    backend_stream_url: str
+    cors_headers: dict[str, str]
+
+
 class AbstpStreamView(HomeAssistantView):
     """Proxy real-time transcoded audio streams to clients and media players."""
 
@@ -159,35 +169,47 @@ class AbstpStreamView(HomeAssistantView):
     requires_auth: bool = False
     cors_allowed: bool = False
 
-    async def head(self, request: web.Request, session_id: str) -> web.StreamResponse:
-        """Handle stream probe requests from players."""
+    def _validate_stream_request(
+        self, request: web.Request, session_id: str
+    ) -> _ValidatedStreamRequest | web.Response:
+        """Validate stream authentication, player permissions, and lifecycle state."""
         hass = cast("HomeAssistant", request.app["hass"])
         cors_headers = _resolve_cors_headers(request, hass)
+        error_headers = {**cors_headers, **SECURITY_HEADERS}
+
         tracker = _get_active_tracker(hass)
-        if tracker is None or tracker.get_stream_url(session_id) is None:
-            return web.Response(
-                status=404, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+        if tracker is None:
+            return web.Response(status=404, headers=error_headers)
 
         if tracker.is_backend_terminated(session_id):
-            return web.Response(
-                status=410, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+            return web.Response(status=410, headers=error_headers)
+
+        backend_stream_url = tracker.get_stream_url(session_id)
+        if backend_stream_url is None:
+            return web.Response(status=404, headers=error_headers)
 
         token = request.query.get("token")
         is_auth = request.get(
             "hass_authenticated"
         ) is True or tracker.validate_stream_token(session_id, token)
         if not is_auth:
-            return web.Response(
-                status=401, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+            return web.Response(status=401, headers=error_headers)
 
         active_session = tracker.get_session_by_id(session_id)
         if active_session and not is_allowed_player(hass, active_session.entity_id):
-            return web.Response(
-                status=403, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+            return web.Response(status=403, headers=error_headers)
+
+        return _ValidatedStreamRequest(
+            tracker=tracker,
+            backend_stream_url=backend_stream_url,
+            cors_headers=cors_headers,
+        )
+
+    async def head(self, request: web.Request, session_id: str) -> web.StreamResponse:
+        """Handle stream probe requests from players."""
+        validated = self._validate_stream_request(request, session_id)
+        if isinstance(validated, web.Response):
+            return validated
 
         return web.Response(
             status=200,
@@ -195,46 +217,20 @@ class AbstpStreamView(HomeAssistantView):
             headers={
                 "Cache-Control": STREAM_CACHE_CONTROL,
                 "Accept-Ranges": STREAM_ACCEPT_RANGES,
-                **cors_headers,
+                **validated.cors_headers,
                 **SECURITY_HEADERS,
             },
         )
 
     async def get(self, request: web.Request, session_id: str) -> web.StreamResponse:
         """Stream real-time audio transcoding output to client without buffering."""
-        hass = cast("HomeAssistant", request.app["hass"])
-        cors_headers = _resolve_cors_headers(request, hass)
-        tracker = _get_active_tracker(hass)
-        if tracker is None:
-            return web.Response(
-                status=404, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+        validated = self._validate_stream_request(request, session_id)
+        if isinstance(validated, web.Response):
+            return validated
 
-        if tracker.is_backend_terminated(session_id):
-            return web.Response(
-                status=410, headers={**cors_headers, **SECURITY_HEADERS}
-            )
-
-        backend_stream_url = tracker.get_stream_url(session_id)
-        if backend_stream_url is None:
-            return web.Response(
-                status=404, headers={**cors_headers, **SECURITY_HEADERS}
-            )
-
-        token = request.query.get("token")
-        is_auth = request.get(
-            "hass_authenticated"
-        ) is True or tracker.validate_stream_token(session_id, token)
-        if not is_auth:
-            return web.Response(
-                status=401, headers={**cors_headers, **SECURITY_HEADERS}
-            )
-
-        active_session = tracker.get_session_by_id(session_id)
-        if active_session and not is_allowed_player(hass, active_session.entity_id):
-            return web.Response(
-                status=403, headers={**cors_headers, **SECURITY_HEADERS}
-            )
+        tracker = validated.tracker
+        backend_stream_url = validated.backend_stream_url
+        cors_headers = validated.cors_headers
 
         LOGGER.debug(
             "HA stream proxy request: session=%s peer=%s forwarded_for=%s",
@@ -242,6 +238,7 @@ class AbstpStreamView(HomeAssistantView):
             request.remote,
             request.headers.get("X-Forwarded-For", ""),
         )
+        hass = cast("HomeAssistant", request.app["hass"])
         session = async_get_clientsession(hass)
         timeout = ClientTimeout(
             total=None,
