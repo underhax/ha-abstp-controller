@@ -1,8 +1,16 @@
 import { html, type TemplateResult } from 'lit-html';
 import { audiobookIcon, clearIcon, podcastIcon, waitIcon } from '../../icons.ts';
 import { localize } from '../../localize.ts';
-import type { AbstpCardConfig, InProgressItem, MediaItem, PodcastEpisode } from '../../types.ts';
-import { isItemActive } from '../media.ts';
+import {
+  type AbstpCardConfig,
+  type InProgressItem,
+  isSeriesGroup,
+  type LibraryBookItem,
+  type MediaItem,
+  type PodcastEpisode,
+  type SeriesGroup,
+} from '../../types.ts';
+import { formatEpisodeBadge, formatSequenceBadge, isItemActive } from '../media.ts';
 import { formatTime } from '../timeline.ts';
 
 export interface TabsBarContext {
@@ -33,10 +41,25 @@ export interface PodcastsViewContext {
   onSelectPodcast: (podcastId: string) => void | Promise<void>;
 }
 
+export interface BooksViewContext {
+  currentItem?: InProgressItem | MediaItem | PodcastEpisode | null | undefined;
+  displayBooks: LibraryBookItem[];
+  isRefreshing: boolean;
+  lang: string;
+  searchQuery: string;
+  selectedSeriesBooks: MediaItem[];
+  selectedSeriesId: string | null;
+  selectedSeriesTitle: string;
+  onBackToBooks: () => void;
+  onSelectItem: (item: MediaItem) => void | Promise<void>;
+  onSelectSeries: (seriesId: string) => void;
+}
+
 export interface LibrarySectionContext {
   activeTab: string;
   config?: AbstpCardConfig | undefined;
   currentItem?: InProgressItem | MediaItem | PodcastEpisode | null | undefined;
+  displayBooks?: LibraryBookItem[];
   episodes: Record<string, PodcastEpisode[]>;
   filteredBooks: MediaItem[];
   filteredInProgress: InProgressItem[];
@@ -47,12 +70,17 @@ export interface LibrarySectionContext {
   podcasts: MediaItem[];
   searchQuery: string;
   selectedPodcastId: string | null;
+  selectedSeriesBooks?: MediaItem[];
+  selectedSeriesId?: string | null;
+  selectedSeriesTitle?: string;
+  onBackToBooks?: () => void;
   onBackToPodcasts: () => void;
   onClearSearch: () => void;
   onRefresh: () => void | Promise<void>;
   onSearchInput: (event: Event) => void;
   onSelectItem: (item: InProgressItem | MediaItem | PodcastEpisode) => void | Promise<void>;
   onSelectPodcast: (podcastId: string) => void | Promise<void>;
+  onSelectSeries?: (seriesId: string) => void;
   onTabBooks: () => void;
   onTabInProgress: () => void;
   onTabPodcasts: () => void;
@@ -126,6 +154,9 @@ export function renderInProgressCard(
   const isPodcastEp: boolean = item.media_type === 'podcast' && Boolean(item.episode_title);
   const titleText: string = isPodcastEp ? (item.episode_title ?? item.title) : item.title;
   const subtitleText: string = isPodcastEp ? item.title : item.author;
+  const badgeText: string = isPodcastEp
+    ? formatEpisodeBadge(item.season, item.episode, item.episode_num)
+    : formatSequenceBadge(item.sequence, item.sequence_num);
 
   return html`
     <div
@@ -144,6 +175,7 @@ export function renderInProgressCard(
             (e.target as HTMLElement).style.display = 'none';
           }}
         />
+        ${renderSequenceBadge(badgeText)}
         ${
           progressPercent > 0
             ? html`
@@ -185,11 +217,182 @@ export function renderInProgressGrid(
   `;
 }
 
+export function renderSequenceBadge(badgeText: string): TemplateResult {
+  return badgeText ? html`<div class="sequence-badge">${badgeText}</div>` : html``;
+}
+
+export function renderSeriesSlice(
+  bookId: string,
+  extraClasses: string,
+  zIndex: number = 1,
+): TemplateResult {
+  return html`
+    <div class="series-slice ${extraClasses}" style="z-index: ${zIndex}">
+      <div class="placeholder">${audiobookIcon}</div>
+      <img
+        src="/api/abstp_controller/cover/${bookId}"
+        alt=""
+        loading="lazy"
+        @error=${(e: Event): void => {
+          (e.target as HTMLElement).style.display = 'none';
+        }}
+      />
+    </div>
+  `;
+}
+
+export function renderSeriesStackCover(seriesGroup: SeriesGroup): TemplateResult {
+  const books: MediaItem[] = seriesGroup.books;
+  const count: number = books.length;
+  const sizeClass: string = count === 2 ? 'slice-pair' : count === 3 ? 'slice-trio' : '';
+
+  return html`
+    <div class="series-stack">
+      ${books.map((book: MediaItem, idx: number): TemplateResult => {
+        const sliceClass: string =
+          idx === 0 ? `series-slice-0 ${sizeClass}` : `series-slice-sub series-slice-${idx}`;
+        return renderSeriesSlice(book.id, sliceClass.trim(), idx + 1);
+      })}
+      <div class="series-badge">${seriesGroup.count}</div>
+    </div>
+  `;
+}
+
+export function renderSeriesCard(
+  seriesGroup: SeriesGroup,
+  onSelectSeries?: (seriesId: string) => void,
+): TemplateResult {
+  return html`
+    <div
+      class="media-card series-card"
+      @click=${(): void => {
+        onSelectSeries?.(seriesGroup.id);
+      }}
+    >
+      <div class="card-cover series-cover">
+        ${renderSeriesStackCover(seriesGroup)}
+      </div>
+      <div class="card-info">
+        <div class="card-author" title="${seriesGroup.author}">${seriesGroup.author}</div>
+        <div class="card-title" title="${seriesGroup.title}">${seriesGroup.title}</div>
+      </div>
+    </div>
+  `;
+}
+
+export function renderBookCard(
+  book: MediaItem,
+  currentItem: InProgressItem | MediaItem | PodcastEpisode | null | undefined,
+  onSelectItem: (item: MediaItem) => void | Promise<void>,
+  showSequenceBadge: boolean = false,
+): TemplateResult {
+  const progressPercent: number =
+    book.duration > 0 ? Math.min(100, (book.progress / book.duration) * 100) : 0;
+  const isActive: boolean = currentItem?.id === book.id;
+  const badgeText: string = showSequenceBadge
+    ? formatSequenceBadge(book.sequence, book.sequence_num)
+    : '';
+
+  return html`
+    <div
+      class="media-card ${isActive ? 'active' : ''}"
+      @click=${(): void => {
+        void onSelectItem(book);
+      }}
+    >
+      <div class="card-cover">
+        <div class="placeholder">${audiobookIcon}</div>
+        <img
+          src="/api/abstp_controller/cover/${book.id}"
+          alt=""
+          loading="lazy"
+          @error=${(e: Event): void => {
+            (e.target as HTMLElement).style.display = 'none';
+          }}
+        />
+        ${renderSequenceBadge(badgeText)}
+        ${
+          book.is_finished
+            ? html`
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill finished"></div>
+              </div>
+            `
+            : progressPercent > 0
+              ? html`
+                <div class="progress-bar-bg">
+                  <div
+                    class="progress-bar-fill"
+                    style="width: ${progressPercent}%"
+                  ></div>
+                </div>
+              `
+              : html``
+        }
+      </div>
+      <div class="card-info">
+        <div class="card-author" title="${book.author}">${book.author}</div>
+        <div class="card-title" title="${book.title}">${book.title}</div>
+      </div>
+    </div>
+  `;
+}
+
+export function renderBooksView(context: BooksViewContext): TemplateResult {
+  if (context.selectedSeriesId) {
+    const seriesTitle: string = context.selectedSeriesTitle;
+    const seriesBooks: MediaItem[] = context.selectedSeriesBooks;
+
+    return html`
+      <div class="podcast-header series-header">
+        <button
+          class="ctrl-btn icon-btn"
+          @click=${(): void => context.onBackToBooks()}
+        >
+          ←
+        </button>
+        <span class="podcast-header-title">${seriesTitle}</span>
+        <span class="series-header-count">${seriesBooks.length}</span>
+      </div>
+      ${
+        seriesBooks.length === 0
+          ? html`<div class="empty-state">${localize('card.no_items', context.lang)}</div>`
+          : html`
+            <div class="library-grid">
+              ${seriesBooks.map(
+                (book: MediaItem): TemplateResult =>
+                  renderBookCard(book, context.currentItem, context.onSelectItem, true),
+              )}
+            </div>
+          `
+      }
+    `;
+  }
+
+  if (context.displayBooks.length === 0) {
+    return html`<div class="empty-state">${localize('card.no_items', context.lang)}</div>`;
+  }
+
+  const isFlatSearch: boolean = context.searchQuery.trim().length > 0;
+
+  return html`
+    <div class="library-grid">
+      ${context.displayBooks.map((item: LibraryBookItem): TemplateResult => {
+        if (isSeriesGroup(item)) {
+          return renderSeriesCard(item, context.onSelectSeries);
+        }
+        return renderBookCard(item, context.currentItem, context.onSelectItem, isFlatSearch);
+      })}
+    </div>
+  `;
+}
+
 export function renderBooksGrid(
   books: MediaItem[],
   currentItem: InProgressItem | MediaItem | PodcastEpisode | null | undefined,
   lang: string,
   onSelectItem: (item: MediaItem) => void | Promise<void>,
+  showSequenceBadge: boolean = false,
 ): TemplateResult {
   if (books.length === 0) {
     return html`<div class="empty-state">${localize('card.no_items', lang)}</div>`;
@@ -197,53 +400,10 @@ export function renderBooksGrid(
 
   return html`
     <div class="library-grid">
-      ${books.map((book: MediaItem): TemplateResult => {
-        const progressPercent: number =
-          book.duration > 0 ? Math.min(100, (book.progress / book.duration) * 100) : 0;
-        const isActive: boolean = currentItem?.id === book.id;
-        return html`
-          <div
-            class="media-card ${isActive ? 'active' : ''}"
-            @click=${(): void => {
-              void onSelectItem(book);
-            }}
-          >
-            <div class="card-cover">
-              <div class="placeholder">${audiobookIcon}</div>
-              <img
-                src="/api/abstp_controller/cover/${book.id}"
-                alt=""
-                loading="lazy"
-                @error=${(e: Event): void => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-              ${
-                book.is_finished
-                  ? html`
-                    <div class="progress-bar-bg">
-                      <div class="progress-bar-fill finished"></div>
-                    </div>
-                  `
-                  : progressPercent > 0
-                    ? html`
-                      <div class="progress-bar-bg">
-                        <div
-                          class="progress-bar-fill"
-                          style="width: ${progressPercent}%"
-                        ></div>
-                      </div>
-                    `
-                    : html``
-              }
-            </div>
-            <div class="card-info">
-              <div class="card-author" title="${book.author}">${book.author}</div>
-              <div class="card-title" title="${book.title}">${book.title}</div>
-            </div>
-          </div>
-        `;
-      })}
+      ${books.map(
+        (book: MediaItem): TemplateResult =>
+          renderBookCard(book, currentItem, onSelectItem, showSequenceBadge),
+      )}
     </div>
   `;
 }
@@ -260,6 +420,7 @@ export function renderPodcastEpisodesGrid(
         const isActive: boolean = currentItem?.id === ep.id;
         const progressPercent: number =
           ep.duration > 0 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
+        const badgeText: string = formatEpisodeBadge(ep.season, ep.episode, ep.episode_num);
         return html`
           <div
             class="media-card ${isActive ? 'active' : ''}"
@@ -277,6 +438,7 @@ export function renderPodcastEpisodesGrid(
                   (e.target as HTMLElement).style.display = 'none';
                 }}
               />
+              ${renderSequenceBadge(badgeText)}
               ${
                 ep.is_finished
                   ? html`
@@ -385,7 +547,7 @@ export function renderPodcastsView(context: PodcastsViewContext): TemplateResult
 }
 
 export function renderLibraryContent(context: LibrarySectionContext): TemplateResult {
-  if (context.isRefreshing && !context.selectedPodcastId) {
+  if (context.isRefreshing && !context.selectedPodcastId && !context.selectedSeriesId) {
     return html`<div class="empty-state">${localize('card.loading', context.lang)}</div>`;
   }
   if (context.activeTab === 'in_progress') {
@@ -397,12 +559,19 @@ export function renderLibraryContent(context: LibrarySectionContext): TemplateRe
     );
   }
   if (context.activeTab === 'books') {
-    return renderBooksGrid(
-      context.filteredBooks,
-      context.currentItem,
-      context.lang,
-      context.onSelectItem,
-    );
+    return renderBooksView({
+      currentItem: context.currentItem,
+      displayBooks: context.displayBooks ?? context.filteredBooks,
+      isRefreshing: context.isRefreshing,
+      lang: context.lang,
+      onBackToBooks: context.onBackToBooks ?? ((): void => {}),
+      onSelectItem: context.onSelectItem as (item: MediaItem) => void | Promise<void>,
+      onSelectSeries: context.onSelectSeries ?? ((): void => {}),
+      searchQuery: context.searchQuery,
+      selectedSeriesBooks: context.selectedSeriesBooks ?? [],
+      selectedSeriesId: context.selectedSeriesId ?? null,
+      selectedSeriesTitle: context.selectedSeriesTitle ?? '',
+    });
   }
   return renderPodcastsView({
     allPodcasts: context.podcasts,

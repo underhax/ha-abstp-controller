@@ -1739,3 +1739,88 @@ async def test_restore_numeric_attributes_and_episode_id(
     assert player.extra_state_attributes["item_id"] == "item_xyz"
 
     await player.async_will_remove_from_hass()
+
+
+async def test_extra_state_attributes_include_series_metadata(
+    hass: HomeAssistant,
+) -> None:
+    """Test extra state attributes expose series and sequence when available."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=[
+            MediaItem(
+                id="book_series_1",
+                title="Dune Messiah",
+                author="Frank Herbert",
+                media_type="book",
+                series="Dune",
+                series_id="ser_1",
+                sequence="2",
+                sequence_num=2.0,
+                duration=30000.0,
+            )
+        ],
+        podcasts=[],
+        in_progress=[
+            InProgressItem(
+                id="book_series_in_progress",
+                title="Children of Dune",
+                author="Frank Herbert",
+                media_type="book",
+                current_time=500.0,
+                duration=32000.0,
+                progress=500.0,
+                series="Dune",
+                series_id="ser_1",
+                sequence="3",
+                sequence_num=3.0,
+            )
+        ],
+    )
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_series"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.speaker",
+    )
+    _attach_player_to_hass(player, hass)
+
+    for name, value in (
+        ("_item_id", "book_series_in_progress"),
+        ("_episode_id", None),
+    ):
+        setattr(player, name, value)
+    player.update_state_attributes()
+    attrs = player.extra_state_attributes
+    assert attrs is not None
+    assert attrs["series"] == "Dune"
+    assert attrs["sequence"] == "3"
+
+    for name, value in (
+        ("_item_id", "book_series_1"),
+        ("_episode_id", None),
+    ):
+        setattr(player, name, value)
+    player.update_state_attributes()
+    attrs = player.extra_state_attributes
+    assert attrs is not None
+    assert attrs["series"] == "Dune"
+    assert attrs["sequence"] == "2"
+
+    for name, value in (("_item_id", None),):
+        setattr(player, name, value)
+    player.update_state_attributes()
+    attrs = player.extra_state_attributes
+    assert attrs is not None
+    assert "series" not in attrs
+    assert "sequence" not in attrs

@@ -59,6 +59,8 @@ from .const import (
     ATTR_EPISODE_ID,
     ATTR_ITEM_ID,
     ATTR_PLAYBACK_SPEED,
+    ATTR_SEQUENCE,
+    ATTR_SERIES,
     ATTR_SPEED,
     ATTR_TARGET_AVAILABLE,
     ATTR_TARGET_PLAYER,
@@ -435,6 +437,11 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
             attrs[ATTR_EPISODE_ID] = self._episode_id
         if self._playback_speed is not None:
             attrs[ATTR_PLAYBACK_SPEED] = self._playback_speed
+        series, sequence = self._resolve_series_info()
+        if series is not None:
+            attrs[ATTR_SERIES] = series
+        if sequence is not None:
+            attrs[ATTR_SEQUENCE] = sequence
         self._attr_extra_state_attributes = attrs
 
     def _resolve_duration(self, session: ActiveSession) -> int | None:
@@ -446,6 +453,23 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
             if progress_item.id == session.item_id:
                 return int(progress_item.duration)
         return None
+
+    def _resolve_series_info(self) -> tuple[str | None, str | None]:
+        """Find series and sequence metadata for the currently active item."""
+        if self._item_id is None:
+            return None, None
+        for progress_item in self.coordinator.data.in_progress:
+            if (
+                progress_item.id == self._item_id
+                and progress_item.episode_id == self._episode_id
+            ):
+                if progress_item.series or progress_item.sequence:
+                    return progress_item.series, progress_item.sequence
+                break
+        for book in self.coordinator.data.books:
+            if book.id == self._item_id:
+                return book.series, book.sequence
+        return None, None
 
     @override
     async def async_media_play(self) -> None:

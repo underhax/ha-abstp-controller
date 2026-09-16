@@ -108,6 +108,14 @@ async def test_build_library_data_serializes_in_progress_and_sessions(
             "id": "book_1",
             "title": "Book One",
             "author": "Author",
+            "narrator": None,
+            "series": None,
+            "series_id": None,
+            "sequence": None,
+            "sequence_num": None,
+            "season": None,
+            "episode": None,
+            "episode_num": None,
             "media_type": "book",
             "cover_url": "",
             "duration": 1000.0,
@@ -115,7 +123,6 @@ async def test_build_library_data_serializes_in_progress_and_sessions(
             "current_time": 300.0,
             "episode_id": None,
             "episode_title": None,
-            "narrator": None,
         }
     ]
     active_sessions = data["active_sessions"]
@@ -498,7 +505,8 @@ async def test_ws_get_episodes_returns_episode_list(
                 title="Episode One",
                 season="1",
                 episode="1",
-                published_at="2026-01-01",
+                episode_num=1.0,
+                published_at="1970-01-01 00:00:00",
                 duration=1800.0,
                 progress=300.0,
             )
@@ -526,6 +534,7 @@ async def test_ws_get_episodes_returns_episode_list(
     episodes = cast("list[dict[str, object]]", result["episodes"])
     assert len(episodes) == 1
     assert episodes[0]["id"] == "ep_1"
+    assert episodes[0]["episode_num"] == 1.0
 
 
 async def test_ws_get_episodes_sends_error_on_api_failure(
@@ -656,3 +665,53 @@ async def test_ws_get_chapters_returns_error_when_not_loaded(
     cast("MagicMock", connection.send_error).assert_called_once_with(
         35, "not_loaded", "Integration not ready or loaded"
     )
+
+
+async def test_build_library_data_serializes_books_with_series_and_sequence(
+    hass: HomeAssistant,
+) -> None:
+    """Test books serialization includes series and sequence metadata."""
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.data = AbstpData(
+        healthy=True,
+        books=[
+            MediaItem(
+                id="book_1",
+                title="Dune",
+                author="Frank Herbert",
+                media_type="book",
+                cover_url="/api/covers/1",
+                narrator="George Guidall",
+                series="Dune",
+                series_id="ser_1",
+                sequence="1",
+                sequence_num=1.0,
+                duration=36000.0,
+                progress=120.0,
+                is_finished=False,
+            )
+        ],
+        podcasts=[],
+        in_progress=[],
+    )
+    hass.data[DOMAIN] = {}
+
+    data = build_library_data(hass, coordinator)
+
+    assert data["books"] == [
+        {
+            "id": "book_1",
+            "title": "Dune",
+            "author": "Frank Herbert",
+            "narrator": "George Guidall",
+            "series": "Dune",
+            "series_id": "ser_1",
+            "sequence": "1",
+            "sequence_num": 1.0,
+            "media_type": "book",
+            "cover_url": "/api/abstp_controller/cover/book_1",
+            "duration": 36000.0,
+            "progress": 120.0,
+            "is_finished": False,
+        }
+    ]

@@ -110,21 +110,59 @@ async def test_get_books_success(mock_session: MagicMock) -> None:
                 "duration": 36000.0,
                 "progress": 1200.0,
                 "narrator": "George Guidall",
+                "series": "Dune",
+                "seriesId": "ser_1",
+                "sequence": "1",
+                "sequenceNum": 1.0,
                 "isFinished": True,
-            }
+            },
+            {
+                "id": "book_2",
+                "title": "Dune Messiah",
+                "author": "Frank Herbert",
+                "mediaType": "book",
+                "coverUrl": "/api/proxy/covers/book_2",
+                "duration": 30000.0,
+                "progress": 0.0,
+                "series": "Dune",
+                "series_id": "ser_1",
+                "sequence": "2-3",
+                "sequence_num": 2.0,
+                "isFinished": False,
+            },
+            {
+                "id": "book_3",
+                "title": "Standalone",
+                "author": "Author Three",
+                "mediaType": "book",
+            },
         ]
     )
     set_mock_response(mock_session, mock_response)
 
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     books = await client.async_get_books()
-    assert len(books) == 1
+    assert len(books) == 3
     assert books[0].id == "book_1"
     assert books[0].title == "Dune"
     assert books[0].author == "Frank Herbert"
     assert books[0].narrator == "George Guidall"
+    assert books[0].series == "Dune"
+    assert books[0].series_id == "ser_1"
+    assert books[0].sequence == "1"
+    assert books[0].sequence_num == 1.0
     assert books[0].media_type == "book"
     assert books[0].is_finished is True
+
+    assert books[1].id == "book_2"
+    assert books[1].series_id == "ser_1"
+    assert books[1].sequence == "2-3"
+    assert books[1].sequence_num == 2.0
+
+    assert books[2].id == "book_3"
+    assert books[2].series is None
+    assert books[2].sequence is None
+    assert books[2].sequence_num is None
 
 
 async def test_get_podcasts_success(mock_session: MagicMock) -> None:
@@ -166,21 +204,45 @@ async def test_get_podcast_episodes_success(mock_session: MagicMock) -> None:
                 "title": "Episode 1",
                 "season": "1",
                 "episode": "1",
-                "publishedAt": "2026-01-01",
+                "episodeNum": 1.0,
+                "publishedAt": "1970-01-01 00:00:00",
                 "duration": 1800.0,
                 "progress": 300.0,
                 "isFinished": True,
-            }
+            },
+            {
+                "id": "ep_2",
+                "title": "Episode 2",
+                "season": "1",
+                "episode": "2.5",
+                "episodeNum": 2.5,
+                "duration": 1800.0,
+                "progress": 0.0,
+                "isFinished": False,
+            },
+            {
+                "id": "ep_3",
+                "title": "Special Episode",
+                "duration": 900.0,
+            },
         ]
     )
     set_mock_response(mock_session, mock_response)
 
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     episodes = await client.async_get_podcast_episodes("podcast_1")
-    assert len(episodes) == 1
+    assert len(episodes) == 3
     assert episodes[0].id == "ep_1"
     assert episodes[0].title == "Episode 1"
+    assert episodes[0].episode == "1"
+    assert episodes[0].episode_num == 1.0
     assert episodes[0].is_finished is True
+    assert episodes[1].id == "ep_2"
+    assert episodes[1].episode == "2.5"
+    assert episodes[1].episode_num == 2.5
+    assert episodes[2].id == "ep_3"
+    assert episodes[2].episode is None
+    assert episodes[2].episode_num is None
 
 
 async def test_start_session_success(mock_session: MagicMock) -> None:
@@ -287,6 +349,10 @@ async def test_get_in_progress_success(mock_session: MagicMock) -> None:
                 "progress": 250.0,
                 "currentTime": 250.0,
                 "narrator": "Narrator 1",
+                "series": "Dune",
+                "seriesId": "ser_1",
+                "sequence": "1",
+                "sequenceNum": 1.0,
             },
             {
                 "id": "podcast_1",
@@ -299,6 +365,35 @@ async def test_get_in_progress_success(mock_session: MagicMock) -> None:
                 "currentTime": 500.0,
                 "episodeId": "ep_1",
                 "episodeTitle": "Ep 1",
+                "season": "1",
+                "episode": "1",
+                "episodeNum": 1.0,
+            },
+            {
+                "id": "item_2",
+                "title": "Book 2",
+                "author": "Author 1",
+                "mediaType": "book",
+                "duration": 1000.0,
+                "progress": 100.0,
+                "currentTime": 100.0,
+                "series": "Dune",
+                "series_id": "ser_1",
+                "sequence": "2-3",
+                "sequence_num": 2.0,
+            },
+            {
+                "id": "podcast_2",
+                "title": "Podcast 2",
+                "author": "Author 2",
+                "mediaType": "podcast",
+                "duration": 2000.0,
+                "progress": 0.0,
+                "currentTime": 0.0,
+                "episodeId": "ep_2",
+                "season": "2",
+                "episode": "3.5",
+                "episodeNum": 3.5,
             },
             {
                 "id": "",
@@ -310,14 +405,32 @@ async def test_get_in_progress_success(mock_session: MagicMock) -> None:
 
     client = AbstpApiClient(mock_session, BASE_TEST_URL, "test_proxy_secret_key_12345")
     items = await client.async_get_in_progress()
-    assert len(items) == 2
+    assert len(items) == 4
     assert items[0].id == "item_1"
     assert items[0].media_type == "book"
     assert items[0].current_time == 250.0
     assert items[0].narrator == "Narrator 1"
+    assert items[0].series == "Dune"
+    assert items[0].series_id == "ser_1"
+    assert items[0].sequence == "1"
+    assert items[0].sequence_num == 1.0
+
     assert items[1].id == "podcast_1"
     assert items[1].episode_id == "ep_1"
     assert items[1].episode_title == "Ep 1"
+    assert items[1].season == "1"
+    assert items[1].episode == "1"
+    assert items[1].episode_num == 1.0
+
+    assert items[2].id == "item_2"
+    assert items[2].series_id == "ser_1"
+    assert items[2].sequence == "2-3"
+    assert items[2].sequence_num == 2.0
+
+    assert items[3].id == "podcast_2"
+    assert items[3].season == "2"
+    assert items[3].episode == "3.5"
+    assert items[3].episode_num == 3.5
 
 
 async def test_get_in_progress_empty_and_invalid(mock_session: MagicMock) -> None:

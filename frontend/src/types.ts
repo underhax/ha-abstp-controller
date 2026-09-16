@@ -15,7 +15,30 @@ export interface MediaItem {
   media_type: 'book' | 'podcast';
   narrator?: string | null;
   progress: number;
+  series?: string | null;
+  series_id?: string | null;
+  sequence?: string | null;
+  sequence_num?: number | null;
   title: string;
+}
+
+export interface SeriesGroup {
+  author: string;
+  books: MediaItem[];
+  count: number;
+  id: string;
+  title: string;
+}
+
+export type LibraryBookItem = MediaItem | SeriesGroup;
+
+export function isSeriesGroup(item: unknown): item is SeriesGroup {
+  return (
+    typeof item === 'object' &&
+    item !== null &&
+    'books' in item &&
+    Array.isArray((item as SeriesGroup).books)
+  );
 }
 
 export interface InProgressItem {
@@ -23,18 +46,26 @@ export interface InProgressItem {
   cover_url: string;
   current_time: number;
   duration: number;
+  episode?: string | null;
   episode_id?: string | null;
+  episode_num?: number | null;
   episode_title?: string | null;
   id: string;
   media_type: 'book' | 'podcast';
   narrator?: string | null;
   progress: number;
+  season?: string | null;
+  series?: string | null;
+  series_id?: string | null;
+  sequence?: string | null;
+  sequence_num?: number | null;
   title: string;
 }
 
 export interface PodcastEpisode {
   duration: number;
   episode?: string;
+  episode_num?: number | null;
   id: string;
   is_finished?: boolean;
   podcast_id?: string;

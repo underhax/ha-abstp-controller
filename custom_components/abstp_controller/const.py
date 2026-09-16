@@ -36,6 +36,8 @@ ATTR_SPEED: Final = "speed"
 ATTR_PLAYBACK_SPEED: Final = "playback_speed"
 ATTR_CURRENT_TIME: Final = "current_time"
 ATTR_SESSION_ID: Final = "session_id"
+ATTR_SERIES: Final = "series"
+ATTR_SEQUENCE: Final = "sequence"
 
 CONF_TARGET_PLAYERS: Final = "target_players"
 CONF_PLAYER_FRIENDLY_NAMES: Final = "player_friendly_names"

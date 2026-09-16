@@ -1,18 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import {
+  compareBooksBySequence,
   filterBooks,
   filterInProgress,
   filterPodcasts,
   findSavedItem,
+  formatEpisodeBadge,
+  formatSequenceBadge,
   getCurrentChapter,
+  groupBooksBySeries,
   hasNoNavigableChapters,
   isItemActive,
   isPodcastItem,
+  matchesSeries,
   resolveHeroCoverAndAuthor,
   resolveInitialPosition,
   resolveItemIds,
+  sortBooksBySequence,
 } from '../src/card/media.ts';
-import type { ChapterItem, InProgressItem, MediaItem, PodcastEpisode } from '../src/types.ts';
+import {
+  type ChapterItem,
+  type InProgressItem,
+  isSeriesGroup,
+  type MediaItem,
+  type PodcastEpisode,
+  type SeriesGroup,
+} from '../src/types.ts';
 
 describe('isPodcastItem()', (): void => {
   it('returns false for null or undefined input', (): void => {
@@ -700,5 +713,351 @@ describe('filterInProgress(), filterBooks() and filterPodcasts()', (): void => {
       },
     ];
     expect(filterPodcasts(sparsePodcasts, 'podcast').length).toBe(2);
+  });
+});
+
+describe('filterInProgress()', (): void => {
+  it('matches items by series name in addition to title and author', (): void => {
+    const items: InProgressItem[] = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        current_time: 100,
+        duration: 1000,
+        id: 'item_1',
+        media_type: 'book',
+        progress: 100,
+        series: 'Dune Chronicles',
+        title: 'Book One',
+      },
+      {
+        author: 'Another Author',
+        cover_url: '',
+        current_time: 50,
+        duration: 500,
+        id: 'item_2',
+        media_type: 'book',
+        progress: 50,
+        title: 'Unrelated Title',
+      },
+    ];
+    expect(filterInProgress(items, 'dune').length).toBe(1);
+    expect(filterInProgress(items, 'dune')[0]?.id).toBe('item_1');
+    expect(filterInProgress(items, 'unrelated').length).toBe(1);
+    expect(filterInProgress(items, '').length).toBe(2);
+  });
+});
+
+describe('filterBooks()', (): void => {
+  it('matches books by series name', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'b1',
+        media_type: 'book',
+        progress: 0,
+        series: 'Dune Chronicles',
+        title: 'Children of Dune',
+      },
+      {
+        author: 'Isaac Asimov',
+        cover_url: '',
+        duration: 1000,
+        id: 'b2',
+        media_type: 'book',
+        progress: 0,
+        series: 'Foundation Series',
+        title: 'Foundation',
+      },
+    ];
+    expect(filterBooks(books, 'dune', 'all').length).toBe(1);
+    expect(filterBooks(books, 'foundation', 'all').length).toBe(1);
+    expect(filterBooks(books, 'nonexistent', 'all').length).toBe(0);
+  });
+});
+
+describe('formatSequenceBadge()', (): void => {
+  it('formats standard sequence strings with hash prefix', (): void => {
+    expect(formatSequenceBadge('1')).toBe('#1');
+    expect(formatSequenceBadge('#2')).toBe('#2');
+    expect(formatSequenceBadge('2-3')).toBe('#2-3');
+    expect(formatSequenceBadge('2.5')).toBe('#2.5');
+  });
+
+  it('formats numeric sequence values', (): void => {
+    expect(formatSequenceBadge(null, 3)).toBe('#3');
+    expect(formatSequenceBadge(undefined, 4.5)).toBe('#4.5');
+  });
+
+  it('returns empty string when sequence information is absent', (): void => {
+    expect(formatSequenceBadge(null, null)).toBe('');
+    expect(formatSequenceBadge('', undefined)).toBe('');
+    expect(formatSequenceBadge('   ', null)).toBe('');
+  });
+});
+
+describe('formatEpisodeBadge()', (): void => {
+  it('formats combined season and episode numbers', (): void => {
+    expect(formatEpisodeBadge('1', '5')).toBe('S1E5');
+    expect(formatEpisodeBadge('02', '08')).toBe('S02E08');
+  });
+
+  it('formats standalone episode strings', (): void => {
+    expect(formatEpisodeBadge(null, '7')).toBe('E7');
+    expect(formatEpisodeBadge('', 'E12')).toBe('E12');
+    expect(formatEpisodeBadge(undefined, '#15')).toBe('#15');
+  });
+
+  it('formats numeric episode fallback', (): void => {
+    expect(formatEpisodeBadge(null, null, 9)).toBe('#9');
+    expect(formatEpisodeBadge('', '', 10.5)).toBe('#10.5');
+  });
+
+  it('returns empty string when no episode identifiers exist', (): void => {
+    expect(formatEpisodeBadge(null, null, null)).toBe('');
+    expect(formatEpisodeBadge('', '', undefined)).toBe('');
+  });
+});
+
+describe('groupBooksBySeries()', (): void => {
+  it('groups series containing two or more books and sorts by sequence', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_2',
+        media_type: 'book',
+        progress: 0,
+        sequence: '2',
+        sequence_num: 2,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune Messiah',
+      },
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune',
+      },
+    ];
+
+    const grouped = groupBooksBySeries(books);
+    expect(grouped.length).toBe(1);
+    expect(isSeriesGroup(grouped[0])).toBe(true);
+    const group: SeriesGroup = grouped[0] as SeriesGroup;
+    expect(group.id).toBe('ser_dune');
+    expect(group.title).toBe('Dune');
+    expect(group.count).toBe(2);
+    expect(group.books[0]?.id).toBe('book_1');
+    expect(group.books[1]?.id).toBe('book_2');
+  });
+
+  it('retains single book series as standalone media item', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Lone Author',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_single',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Solitary Series',
+        series_id: 'ser_solo',
+        title: 'Only Book',
+      },
+    ];
+
+    const grouped = groupBooksBySeries(books);
+    expect(grouped.length).toBe(1);
+    expect(isSeriesGroup(grouped[0])).toBe(false);
+    expect((grouped[0] as MediaItem).id).toBe('book_single');
+  });
+
+  it('preserves standalone books without series metadata', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Author A',
+        cover_url: '',
+        duration: 1000,
+        id: 'standalone_1',
+        media_type: 'book',
+        progress: 0,
+        title: 'Standalone One',
+      },
+    ];
+
+    const grouped = groupBooksBySeries(books);
+    expect(grouped.length).toBe(1);
+    expect(isSeriesGroup(grouped[0])).toBe(false);
+    expect((grouped[0] as MediaItem).id).toBe('standalone_1');
+  });
+
+  it('preserves order of appearance among mixed series and standalone books', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Author Series A',
+        cover_url: '',
+        duration: 1000,
+        id: 'sa_1',
+        media_type: 'book',
+        progress: 0,
+        series: 'Series A',
+        title: 'Series A Book 1',
+      },
+      {
+        author: 'Standalone Author',
+        cover_url: '',
+        duration: 1000,
+        id: 'solo_1',
+        media_type: 'book',
+        progress: 0,
+        title: 'Standalone',
+      },
+      {
+        author: 'Author Series A',
+        cover_url: '',
+        duration: 1000,
+        id: 'sa_2',
+        media_type: 'book',
+        progress: 0,
+        series: 'Series A',
+        title: 'Series A Book 2',
+      },
+    ];
+
+    const grouped = groupBooksBySeries(books);
+    expect(grouped.length).toBe(2);
+    expect(isSeriesGroup(grouped[0])).toBe(true);
+    expect((grouped[0] as SeriesGroup).title).toBe('Series A');
+    expect(isSeriesGroup(grouped[1])).toBe(false);
+    expect((grouped[1] as MediaItem).id).toBe('solo_1');
+  });
+});
+
+describe('compareBooksBySequence()', (): void => {
+  it('orders numeric sequences before missing sequences and resolves ties by title', (): void => {
+    const b1: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b1',
+      media_type: 'book',
+      progress: 0,
+      sequence_num: 2,
+      title: 'Zeta',
+    };
+    const b2: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b2',
+      media_type: 'book',
+      progress: 0,
+      sequence_num: 1,
+      title: 'Alpha',
+    };
+    const b3: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b3',
+      media_type: 'book',
+      progress: 0,
+      sequence_num: 1,
+      title: 'Beta',
+    };
+    const b4: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b4',
+      media_type: 'book',
+      progress: 0,
+      title: 'No Sequence',
+    };
+
+    expect(compareBooksBySequence(b2, b1)).toBeLessThan(0);
+    expect(compareBooksBySequence(b1, b2)).toBeGreaterThan(0);
+    expect(compareBooksBySequence(b2, b3)).toBeLessThan(0);
+    expect(compareBooksBySequence(b1, b4)).toBeLessThan(0);
+  });
+});
+
+describe('sortBooksBySequence()', (): void => {
+  it('sorts an array of books by sequence number ascending in-place', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'A',
+        cover_url: '',
+        duration: 100,
+        id: 'b3',
+        media_type: 'book',
+        progress: 0,
+        sequence_num: 3,
+        title: 'Book 3',
+      },
+      {
+        author: 'A',
+        cover_url: '',
+        duration: 100,
+        id: 'b1',
+        media_type: 'book',
+        progress: 0,
+        sequence_num: 1,
+        title: 'Book 1',
+      },
+    ];
+
+    const sorted = sortBooksBySequence(books);
+    expect(sorted[0]?.id).toBe('b1');
+    expect(sorted[1]?.id).toBe('b3');
+  });
+});
+
+describe('matchesSeries()', (): void => {
+  it('matches by series identifier when present', (): void => {
+    const book: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b1',
+      media_type: 'book',
+      progress: 0,
+      series: 'Series Title',
+      series_id: 'ser-101',
+      title: 'Book 1',
+    };
+
+    expect(matchesSeries(book, 'ser-101')).toBe(true);
+    expect(matchesSeries(book, 'other-id')).toBe(false);
+  });
+
+  it('matches by trimmed series title when series identifier is absent', (): void => {
+    const book: MediaItem = {
+      author: 'A',
+      cover_url: '',
+      duration: 100,
+      id: 'b2',
+      media_type: 'book',
+      progress: 0,
+      series: 'Alice In Wonderland',
+      title: 'Book 2',
+    };
+
+    expect(matchesSeries(book, 'Alice In Wonderland')).toBe(true);
+    expect(matchesSeries(book, 'Other Series')).toBe(false);
   });
 });

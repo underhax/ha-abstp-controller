@@ -1,4 +1,10 @@
-import type { ChapterItem, InProgressItem, MediaItem, PodcastEpisode } from '../types.ts';
+import type {
+  ChapterItem,
+  InProgressItem,
+  MediaItem,
+  PodcastEpisode,
+  SeriesGroup,
+} from '../types.ts';
 
 export function isPodcastItem(
   item: MediaItem | PodcastEpisode | InProgressItem | null | undefined,
@@ -139,15 +145,20 @@ export function filterInProgress(
   inProgress: InProgressItem[],
   searchQuery: string,
 ): InProgressItem[] {
-  const query: string = searchQuery.toLowerCase();
+  const query: string = searchQuery.trim().toLowerCase();
+  if (!query) {
+    return inProgress;
+  }
   return inProgress.filter((item: InProgressItem): boolean => {
     const title: string = item.title || '';
     const author: string = item.author || '';
     const epTitle: string = item.episode_title ?? '';
+    const series: string = item.series ?? '';
     return (
       title.toLowerCase().includes(query) ||
       author.toLowerCase().includes(query) ||
-      epTitle.toLowerCase().includes(query)
+      epTitle.toLowerCase().includes(query) ||
+      series.toLowerCase().includes(query)
     );
   });
 }
@@ -157,12 +168,16 @@ export function filterBooks(
   searchQuery: string,
   filterProgress: 'all' | 'in_progress' | 'finished',
 ): MediaItem[] {
-  const query: string = searchQuery.toLowerCase();
+  const query: string = searchQuery.trim().toLowerCase();
   return books.filter((b: MediaItem): boolean => {
     const title: string = b.title || '';
     const author: string = b.author || '';
+    const series: string = b.series ?? '';
     const matchQuery: boolean =
-      title.toLowerCase().includes(query) || author.toLowerCase().includes(query);
+      !query ||
+      title.toLowerCase().includes(query) ||
+      author.toLowerCase().includes(query) ||
+      series.toLowerCase().includes(query);
     if (!matchQuery) {
       return false;
     }
@@ -174,6 +189,99 @@ export function filterBooks(
     }
     return true;
   });
+}
+
+export function compareBooksBySequence(a: MediaItem, b: MediaItem): number {
+  const aNum: number = a.sequence_num ?? Number.POSITIVE_INFINITY;
+  const bNum: number = b.sequence_num ?? Number.POSITIVE_INFINITY;
+  if (aNum !== bNum) {
+    return aNum - bNum;
+  }
+  return (a.title || '').localeCompare(b.title || '');
+}
+
+export function sortBooksBySequence(books: MediaItem[]): MediaItem[] {
+  return books.sort(compareBooksBySequence);
+}
+
+export function matchesSeries(book: MediaItem, seriesIdOrTitle: string): boolean {
+  return (book.series_id?.trim() || book.series?.trim()) === seriesIdOrTitle;
+}
+
+export function groupBooksBySeries(books: MediaItem[]): Array<MediaItem | SeriesGroup> {
+  const seriesMap = new Map<string, { group: SeriesGroup; index: number }>();
+  const result: Array<MediaItem | SeriesGroup> = [];
+
+  for (const book of books) {
+    const seriesName: string = book.series?.trim() ?? '';
+    const seriesKey: string = book.series_id?.trim() || seriesName;
+
+    if (!seriesKey || !seriesName) {
+      result.push(book);
+      continue;
+    }
+
+    const existing = seriesMap.get(seriesKey);
+    if (existing) {
+      existing.group.books.push(book);
+      existing.group.count++;
+    } else {
+      const newGroup: SeriesGroup = {
+        author: book.author || '',
+        books: [book],
+        count: 1,
+        id: seriesKey,
+        title: seriesName,
+      };
+      const index: number = result.length;
+      result.push(newGroup);
+      seriesMap.set(seriesKey, { group: newGroup, index });
+    }
+  }
+
+  for (const { group, index } of seriesMap.values()) {
+    if (group.books.length < 2) {
+      result[index] = group.books[0] as MediaItem;
+    } else {
+      sortBooksBySequence(group.books);
+      group.author = group.books[0]?.author || group.author;
+    }
+  }
+
+  return result;
+}
+
+export function formatSequenceBadge(sequence?: string | null, sequenceNum?: number | null): string {
+  if (sequence && sequence.trim().length > 0) {
+    const trimmed: string = sequence.trim();
+    return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  }
+  if (sequenceNum !== null && sequenceNum !== undefined) {
+    return `#${sequenceNum}`;
+  }
+  return '';
+}
+
+export function formatEpisodeBadge(
+  season?: string | null,
+  episode?: string | null,
+  episodeNum?: number | null,
+): string {
+  const cleanSeason: string = season?.trim() ?? '';
+  const cleanEpisode: string = episode?.trim() ?? '';
+
+  if (cleanSeason.length > 0 && cleanEpisode.length > 0) {
+    return `S${cleanSeason}E${cleanEpisode}`;
+  }
+  if (cleanEpisode.length > 0) {
+    return cleanEpisode.startsWith('E') || cleanEpisode.startsWith('#')
+      ? cleanEpisode
+      : `E${cleanEpisode}`;
+  }
+  if (episodeNum !== null && episodeNum !== undefined) {
+    return `#${episodeNum}`;
+  }
+  return '';
 }
 
 export function filterPodcasts(podcasts: MediaItem[], searchQuery: string): MediaItem[] {

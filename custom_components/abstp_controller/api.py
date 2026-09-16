@@ -40,6 +40,10 @@ class MediaItem:
     media_type: str
     cover_url: str | None = None
     narrator: str | None = None
+    series: str | None = None
+    series_id: str | None = None
+    sequence: str | None = None
+    sequence_num: float | None = None
     duration: float = 0.0
     progress: float = 0.0
     is_finished: bool = False
@@ -64,6 +68,7 @@ class PodcastEpisode:
     title: str
     season: str | None = None
     episode: str | None = None
+    episode_num: float | None = None
     published_at: str | None = None
     duration: float = 0.0
     progress: float = 0.0
@@ -85,6 +90,13 @@ class InProgressItem:
     narrator: str | None = None
     episode_id: str | None = None
     episode_title: str | None = None
+    series: str | None = None
+    series_id: str | None = None
+    sequence: str | None = None
+    sequence_num: float | None = None
+    season: str | None = None
+    episode: str | None = None
+    episode_num: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +107,44 @@ class PlaySession:
     stream_url: str
     current_time: float
     duration: float
+
+
+def _extract_series_info(
+    item: dict[str, object],
+) -> tuple[str | None, str | None, str | None, float | None]:
+    """Extract and normalize series name, series ID, sequence, and numeric sequence."""
+    series = str(item["series"]) if item.get("series") else None
+    series_id = (
+        str(item["seriesId"])
+        if item.get("seriesId")
+        else (str(item["series_id"]) if item.get("series_id") else None)
+    )
+    raw_seq = item.get("sequence")
+    sequence = (
+        str(raw_seq).strip() if raw_seq is not None and str(raw_seq).strip() else None
+    )
+    seq_num = (
+        item.get("sequenceNum")
+        if item.get("sequenceNum") is not None
+        else item.get("sequence_num")
+    )
+    sequence_num = float(seq_num) if isinstance(seq_num, (int, float)) else None
+    return series, series_id, sequence, sequence_num
+
+
+def _extract_episode_info(
+    item: dict[str, object],
+) -> tuple[str | None, str | None, float | None]:
+    """Extract and normalize season, episode identifier, and numeric episode number."""
+    season = str(item["season"]) if item.get("season") else None
+    episode = str(item.get("episode", "")) if item.get("episode") else None
+    ep_num = (
+        item.get("episodeNum")
+        if item.get("episodeNum") is not None
+        else item.get("episode_num")
+    )
+    episode_num = float(ep_num) if isinstance(ep_num, (int, float)) else None
+    return season, episode, episode_num
 
 
 class AbstpApiClient:
@@ -188,6 +238,7 @@ class AbstpApiClient:
                 narrator = (
                     str(item.get("narrator", "")) if item.get("narrator") else None
                 )
+                series, series_id, sequence, sequence_num = _extract_series_info(item)
                 books.append(
                     MediaItem(
                         id=item_id,
@@ -196,6 +247,10 @@ class AbstpApiClient:
                         media_type="book",
                         cover_url=cover,
                         narrator=narrator,
+                        series=series,
+                        series_id=series_id,
+                        sequence=sequence,
+                        sequence_num=sequence_num,
                         duration=float(str(item.get("duration", 0.0))),
                         progress=float(str(item.get("progress", 0.0))),
                         is_finished=bool(item.get("isFinished", False)),
@@ -258,6 +313,8 @@ class AbstpApiClient:
                     if item.get("episodeTitle")
                     else None
                 )
+                series, series_id, sequence, sequence_num = _extract_series_info(item)
+                season, episode, episode_num = _extract_episode_info(item)
                 items.append(
                     InProgressItem(
                         id=item_id,
@@ -268,6 +325,13 @@ class AbstpApiClient:
                         narrator=narrator,
                         episode_id=ep_id,
                         episode_title=ep_title,
+                        series=series,
+                        series_id=series_id,
+                        sequence=sequence,
+                        sequence_num=sequence_num,
+                        season=season,
+                        episode=episode,
+                        episode_num=episode_num,
                         duration=float(str(item.get("duration", 0.0))),
                         progress=float(str(item.get("progress", 0.0))),
                         current_time=float(str(item.get("currentTime", 0.0))),
@@ -296,14 +360,14 @@ class AbstpApiClient:
                 if not ep_id:
                     continue
                 pub_at = ep.get("publishedAt") or ep.get("published_at")
+                season, ep_val, episode_num = _extract_episode_info(ep)
                 episodes.append(
                     PodcastEpisode(
                         id=ep_id,
                         title=str(ep.get("title", "")),
-                        season=str(ep.get("season", "")) if ep.get("season") else None,
-                        episode=str(ep.get("episode", ""))
-                        if ep.get("episode")
-                        else None,
+                        season=season,
+                        episode=ep_val,
+                        episode_num=episode_num,
                         published_at=str(pub_at) if pub_at else None,
                         duration=float(str(ep.get("duration", 0.0))),
                         progress=float(str(ep.get("progress", 0.0))),

@@ -533,6 +533,7 @@ export class AbstpPlayerCard extends LitElement {
       activeTab: this.library.activeTab,
       config: this.config,
       currentItem: this.playback.currentItem,
+      displayBooks: this.library.getDisplayBooks(),
       episodes: this.library.episodes,
       filteredBooks,
       filteredInProgress,
@@ -540,6 +541,7 @@ export class AbstpPlayerCard extends LitElement {
       hasInProgressItems: this.library.inProgress.length > 0,
       isRefreshing: this.library.isRefreshing,
       lang,
+      onBackToBooks: (): void => this.library.backToBooks(),
       onBackToPodcasts: (): void => this.library.backToPodcasts(),
       onClearSearch: (): void => this.library.clearSearch(),
       onRefresh: (): Promise<void> => this.library.fetchLibrary(),
@@ -548,12 +550,16 @@ export class AbstpPlayerCard extends LitElement {
       onSelectItem: (item: InProgressItem | MediaItem | PodcastEpisode): Promise<void> =>
         this.playback.selectItem(item),
       onSelectPodcast: (podcastId: string): Promise<void> => this.library.fetchEpisodes(podcastId),
+      onSelectSeries: (seriesId: string): void => this.library.selectSeries(seriesId),
       onTabBooks: (): void => this.library.setActiveTab('books'),
       onTabInProgress: (): void => this.library.setActiveTab('in_progress'),
       onTabPodcasts: (): void => this.library.setActiveTab('podcasts'),
       podcasts: this.library.podcasts,
       searchQuery: this.library.searchQuery,
       selectedPodcastId: this.library.selectedPodcastId,
+      selectedSeriesBooks: this.library.getSelectedSeriesBooks(),
+      selectedSeriesId: this.library.selectedSeriesId,
+      selectedSeriesTitle: this.library.getSelectedSeriesTitle(),
     });
   }
 

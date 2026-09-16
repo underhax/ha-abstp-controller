@@ -974,6 +974,117 @@ export const cardStyles: CSSResult = css`
     color: #e5a958;
   }
 
+  .series-cover {
+    position: relative;
+    width: 100%;
+    height: 130px;
+    min-height: 130px;
+    max-height: 130px;
+    overflow: hidden;
+    background: rgb(138, 94, 37);
+    display: block;
+  }
+
+  .series-stack {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+  }
+
+  .series-slice {
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: rgb(138, 94, 37);
+  }
+
+  .series-slice img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+  }
+
+  .series-slice .placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.4rem;
+    color: #000;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
+
+  .series-slice .placeholder .icon {
+    width: 48px;
+    height: 48px;
+    color: #e5a958;
+  }
+
+  .series-slice-0 {
+    flex: 0 0 50%;
+    min-width: 0;
+  }
+
+  .series-slice-0 img {
+    object-position: left center;
+  }
+
+  .series-slice-0.slice-pair {
+    flex: 0 0 72%;
+  }
+
+  .series-slice-0.slice-trio {
+    flex: 0 0 58%;
+  }
+
+  .series-slice-sub {
+    flex: 1 1 0%;
+    min-width: 0;
+    box-shadow: -3px 0 6px rgba(0, 0, 0, 0.45);
+  }
+
+  .series-slice-sub img {
+    object-position: right center;
+  }
+
+  .series-badge,
+  .sequence-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 100;
+    background: rgba(147, 82, 0, 0.9);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 6px;
+    box-shadow: rgba(0, 154, 199, 0.5) 0px 1px 10px;
+  }
+
+  .series-header-count {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-left: 4px;
+  }
+
   .progress-bar-bg {
     position: absolute;
     bottom: 0;

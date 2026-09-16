@@ -5,6 +5,7 @@ import type {
   ChapterItem,
   HomeAssistant,
   InProgressItem,
+  LibraryBookItem,
   MediaItem,
   PodcastEpisode,
 } from '../../types.ts';
@@ -15,10 +16,13 @@ import {
   filterPodcasts,
   findSavedItem,
   getCurrentChapter,
+  groupBooksBySeries,
   hasNoNavigableChapters,
   isPodcastItem,
+  matchesSeries,
   resolveInitialPosition,
   resolveItemIds,
+  sortBooksBySequence,
 } from '../media.ts';
 import { filterAvailablePlayers } from '../templates/device-picker.ts';
 
@@ -51,6 +55,7 @@ export class LibraryController implements ReactiveController {
   public chapters: ChapterItem[] = [];
   public chaptersBookId: string = '';
   public selectedPodcastId: string | null = null;
+  public selectedSeriesId: string | null = null;
   public searchQuery: string = '';
   public filterProgress: 'all' | 'in_progress' | 'finished' = 'all';
   public activeTab: 'in_progress' | 'books' | 'podcasts' = 'in_progress';
@@ -372,12 +377,55 @@ export class LibraryController implements ReactiveController {
     if (tab !== 'podcasts') {
       this.selectedPodcastId = null;
     }
+    if (tab !== 'books') {
+      this.selectedSeriesId = null;
+    }
     this.host.requestUpdate();
   }
 
   public backToPodcasts(): void {
     this.selectedPodcastId = null;
     this.host.requestUpdate();
+  }
+
+  public selectSeries(seriesId: string): void {
+    this.selectedSeriesId = seriesId;
+    this.host.requestUpdate();
+  }
+
+  public backToBooks(): void {
+    this.selectedSeriesId = null;
+    this.host.requestUpdate();
+  }
+
+  public getDisplayBooks(): LibraryBookItem[] {
+    const filtered: MediaItem[] = this.getFilteredBooks();
+    if (this.searchQuery.trim().length > 0) {
+      return filtered;
+    }
+    return groupBooksBySeries(filtered);
+  }
+
+  public getSelectedSeriesBooks(): MediaItem[] {
+    if (!this.selectedSeriesId) {
+      return [];
+    }
+    const targetId: string = this.selectedSeriesId;
+    const matched: MediaItem[] = this.books.filter((b: MediaItem): boolean =>
+      matchesSeries(b, targetId),
+    );
+    return sortBooksBySequence(matched);
+  }
+
+  public getSelectedSeriesTitle(): string {
+    if (!this.selectedSeriesId) {
+      return '';
+    }
+    const targetId: string = this.selectedSeriesId;
+    const book: MediaItem | undefined = this.books.find((b: MediaItem): boolean =>
+      matchesSeries(b, targetId),
+    );
+    return book?.series ?? targetId;
   }
 
   public setSearchQuery(query: string): void {

@@ -1,13 +1,14 @@
 import type { ReactiveControllerHost } from 'lit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LibraryController } from '../src/card/controllers/library-controller.ts';
-import type {
-  AbstpCardConfig,
-  ChapterItem,
-  HomeAssistant,
-  InProgressItem,
-  MediaItem,
-  PodcastEpisode,
+import {
+  type AbstpCardConfig,
+  type ChapterItem,
+  type HomeAssistant,
+  type InProgressItem,
+  isSeriesGroup,
+  type MediaItem,
+  type PodcastEpisode,
 } from '../src/types.ts';
 
 describe('LibraryController', (): void => {
@@ -1244,5 +1245,146 @@ describe('LibraryController', (): void => {
       0,
       false,
     );
+  });
+
+  it('selects a series and navigates back to books', (): void => {
+    library.selectSeries('ser_dune');
+    expect(library.selectedSeriesId).toBe('ser_dune');
+    expect(host.requestUpdate).toHaveBeenCalled();
+
+    library.backToBooks();
+    expect(library.selectedSeriesId).toBeNull();
+  });
+
+  it('clears selected series when switching away from books tab', (): void => {
+    library.setActiveTab('books');
+    library.selectSeries('ser_dune');
+    expect(library.selectedSeriesId).toBe('ser_dune');
+
+    library.setActiveTab('podcasts');
+    expect(library.selectedSeriesId).toBeNull();
+  });
+
+  it('provides grouped books when search query is empty', (): void => {
+    library.books = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune',
+      },
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_2',
+        media_type: 'book',
+        progress: 0,
+        sequence: '2',
+        sequence_num: 2,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune Messiah',
+      },
+      {
+        author: 'Standalone Author',
+        cover_url: '',
+        duration: 500,
+        id: 'book_solo',
+        media_type: 'book',
+        progress: 0,
+        title: 'Solo Book',
+      },
+    ];
+
+    const displayBooks = library.getDisplayBooks();
+    expect(displayBooks.length).toBe(2);
+    expect(isSeriesGroup(displayBooks[0])).toBe(true);
+    expect(isSeriesGroup(displayBooks[1])).toBe(false);
+  });
+
+  it('provides flat list of books when search query is populated', (): void => {
+    library.books = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune',
+      },
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_2',
+        media_type: 'book',
+        progress: 0,
+        sequence: '2',
+        sequence_num: 2,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune Messiah',
+      },
+    ];
+    library.setSearchQuery('messiah');
+
+    const displayBooks = library.getDisplayBooks();
+    expect(displayBooks.length).toBe(1);
+    expect(isSeriesGroup(displayBooks[0])).toBe(false);
+    expect((displayBooks[0] as MediaItem).id).toBe('book_2');
+  });
+
+  it('retrieves books for selected series sorted by sequence', (): void => {
+    library.books = [
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'b2',
+        media_type: 'book',
+        progress: 0,
+        sequence: '2',
+        sequence_num: 2,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune Messiah',
+      },
+      {
+        author: 'Frank Herbert',
+        cover_url: '',
+        duration: 1000,
+        id: 'b1',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Dune',
+        series_id: 'ser_dune',
+        title: 'Dune',
+      },
+    ];
+
+    expect(library.getSelectedSeriesBooks()).toEqual([]);
+    expect(library.getSelectedSeriesTitle()).toBe('');
+
+    library.selectSeries('ser_dune');
+    const seriesBooks = library.getSelectedSeriesBooks();
+    expect(seriesBooks.length).toBe(2);
+    expect(seriesBooks[0]?.id).toBe('b1');
+    expect(seriesBooks[1]?.id).toBe('b2');
+    expect(library.getSelectedSeriesTitle()).toBe('Dune');
   });
 });

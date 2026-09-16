@@ -106,6 +106,10 @@ def build_library_data(
             "title": book.title,
             "author": book.author,
             "narrator": book.narrator,
+            "series": book.series,
+            "series_id": book.series_id,
+            "sequence": book.sequence,
+            "sequence_num": book.sequence_num,
             "media_type": book.media_type,
             "cover_url": f"/api/abstp_controller/cover/{book.id}"
             if book.cover_url
@@ -136,6 +140,14 @@ def build_library_data(
             "id": item.id,
             "title": item.title,
             "author": item.author,
+            "narrator": item.narrator,
+            "series": item.series,
+            "series_id": item.series_id,
+            "sequence": item.sequence,
+            "sequence_num": item.sequence_num,
+            "season": item.season,
+            "episode": item.episode,
+            "episode_num": item.episode_num,
             "media_type": item.media_type,
             "cover_url": f"/api/abstp_controller/cover/{item.id}"
             if item.cover_url
@@ -145,7 +157,6 @@ def build_library_data(
             "current_time": item.current_time,
             "episode_id": item.episode_id,
             "episode_title": item.episode_title,
-            "narrator": item.narrator,
         }
         for item in coordinator.data.in_progress
     ]
@@ -413,6 +424,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
                     "title": ep.title,
                     "season": ep.season,
                     "episode": ep.episode,
+                    "episode_num": ep.episode_num,
                     "published_at": ep.published_at,
                     "duration": ep.duration,
                     "progress": ep.progress,

@@ -1,20 +1,31 @@
 import { render, type TemplateResult } from 'lit-html';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  type BooksViewContext,
   type LibrarySectionContext,
   type PodcastsViewContext,
+  renderBookCard,
   renderBooksGrid,
+  renderBooksView,
   renderInProgressCard,
   renderInProgressGrid,
   renderLibraryContent,
   renderLibrarySection,
   renderPodcastEpisodesGrid,
   renderPodcastsView,
+  renderSeriesCard,
+  renderSeriesStackCover,
   renderTabsBar,
   type TabsBarContext,
 } from '../src/card/templates/library.ts';
 import { localize } from '../src/localize.ts';
-import type { AbstpCardConfig, InProgressItem, MediaItem, PodcastEpisode } from '../src/types.ts';
+import type {
+  AbstpCardConfig,
+  InProgressItem,
+  MediaItem,
+  PodcastEpisode,
+  SeriesGroup,
+} from '../src/types.ts';
 
 const mockConfig: AbstpCardConfig = {
   type: 'custom:abstp-player-card',
@@ -445,6 +456,29 @@ describe('renderPodcastEpisodesGrid()', (): void => {
     expect(container.querySelector('.progress-bar-fill')).toBeNull();
     expect(container.querySelector('.card-title')?.textContent).toBe('No Progress Episode');
   });
+
+  it('renders episode badge when season and episode are provided', (): void => {
+    const episodeWithBadge: PodcastEpisode = {
+      duration: 1200,
+      episode: '9',
+      episode_num: 9,
+      id: 'ep-badge',
+      is_finished: false,
+      progress: 0,
+      season: '1',
+      title: 'Badge Episode',
+    };
+    const result: TemplateResult = renderPodcastEpisodesGrid(
+      [episodeWithBadge],
+      'podcast-1',
+      null,
+      vi.fn(),
+    );
+    const container: HTMLDivElement = document.createElement('div');
+    render(result, container);
+
+    expect(container.querySelector('.sequence-badge')?.textContent).toBe('S1E9');
+  });
 });
 
 describe('renderPodcastsView()', (): void => {
@@ -733,5 +767,354 @@ describe('renderLibrarySection()', (): void => {
     render(renderLibrarySection(context), container);
 
     expect(container.querySelector('.search-clear-btn')).toBeNull();
+  });
+});
+
+describe('renderSeriesStackCover()', (): void => {
+  it('renders accordion cover stack with slice layers and count badge', (): void => {
+    const seriesGroup: SeriesGroup = {
+      author: 'Frank Herbert',
+      books: [
+        {
+          author: 'Frank Herbert',
+          cover_url: '',
+          duration: 1000,
+          id: 'b1',
+          media_type: 'book',
+          progress: 0,
+          title: 'Dune',
+        },
+        {
+          author: 'Frank Herbert',
+          cover_url: '',
+          duration: 1000,
+          id: 'b2',
+          media_type: 'book',
+          progress: 0,
+          title: 'Dune Messiah',
+        },
+        {
+          author: 'Frank Herbert',
+          cover_url: '',
+          duration: 1000,
+          id: 'b3',
+          media_type: 'book',
+          progress: 0,
+          title: 'Children of Dune',
+        },
+      ],
+      count: 3,
+      id: 'ser_dune',
+      title: 'Dune Chronicles',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderSeriesStackCover(seriesGroup), container);
+
+    const slices = container.querySelectorAll('.series-slice');
+    expect(slices.length).toBe(3);
+    const badge = container.querySelector('.series-badge');
+    expect(badge?.textContent).toBe('3');
+  });
+
+  it('applies pair styling when series contains exactly two books', (): void => {
+    const seriesGroup: SeriesGroup = {
+      author: 'Author Pair',
+      books: [
+        {
+          author: 'Author Pair',
+          cover_url: '',
+          duration: 1000,
+          id: 'bp1',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 1',
+        },
+        {
+          author: 'Author Pair',
+          cover_url: '',
+          duration: 1000,
+          id: 'bp2',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 2',
+        },
+      ],
+      count: 2,
+      id: 'ser_pair',
+      title: 'Pair Series',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderSeriesStackCover(seriesGroup), container);
+
+    const slices = container.querySelectorAll('.series-slice');
+    expect(slices.length).toBe(2);
+    expect(container.querySelector('.slice-pair')).not.toBeNull();
+  });
+
+  it('renders all book slices when series contains five books', (): void => {
+    const seriesGroup: SeriesGroup = {
+      author: 'Kir Bulychev',
+      books: [
+        {
+          author: 'Kir Bulychev',
+          cover_url: '',
+          duration: 1000,
+          id: 'b1',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 1',
+        },
+        {
+          author: 'Kir Bulychev',
+          cover_url: '',
+          duration: 1000,
+          id: 'b2',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 2',
+        },
+        {
+          author: 'Kir Bulychev',
+          cover_url: '',
+          duration: 1000,
+          id: 'b3',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 3',
+        },
+        {
+          author: 'Kir Bulychev',
+          cover_url: '',
+          duration: 1000,
+          id: 'b4',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 4',
+        },
+        {
+          author: 'Kir Bulychev',
+          cover_url: '',
+          duration: 1000,
+          id: 'b5',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 5',
+        },
+      ],
+      count: 5,
+      id: 'ser_alice',
+      title: 'Alice',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderSeriesStackCover(seriesGroup), container);
+
+    const slices = container.querySelectorAll('.series-slice');
+    expect(slices.length).toBe(5);
+    const badge = container.querySelector('.series-badge');
+    expect(badge?.textContent).toBe('5');
+  });
+});
+
+describe('renderSeriesCard()', (): void => {
+  it('renders series title, author, and triggers selection handler on click', (): void => {
+    const onSelectSeries = vi.fn();
+    const seriesGroup: SeriesGroup = {
+      author: 'Series Author',
+      books: [
+        {
+          author: 'Series Author',
+          cover_url: '',
+          duration: 1000,
+          id: 'sb1',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 1',
+        },
+        {
+          author: 'Series Author',
+          cover_url: '',
+          duration: 1000,
+          id: 'sb2',
+          media_type: 'book',
+          progress: 0,
+          title: 'Book 2',
+        },
+      ],
+      count: 2,
+      id: 'ser_click',
+      title: 'Clickable Series',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderSeriesCard(seriesGroup, onSelectSeries), container);
+
+    expect(container.querySelector('.card-title')?.textContent).toBe('Clickable Series');
+    expect(container.querySelector('.card-author')?.textContent).toBe('Series Author');
+
+    const card = container.querySelector('.media-card');
+    card?.dispatchEvent(new MouseEvent('click'));
+    expect(onSelectSeries).toHaveBeenCalledWith('ser_click');
+  });
+});
+
+describe('renderBookCard()', (): void => {
+  it('renders sequence badge when showSequenceBadge is enabled', (): void => {
+    const book: MediaItem = {
+      author: 'Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'seq_book',
+      media_type: 'book',
+      progress: 0,
+      sequence: '1',
+      title: 'Book 1',
+    };
+    const onSelectItem = vi.fn();
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderBookCard(book, null, onSelectItem, true), container);
+
+    const badge = container.querySelector('.sequence-badge');
+    expect(badge?.textContent).toBe('#1');
+  });
+
+  it('omits sequence badge when showSequenceBadge is disabled', (): void => {
+    const book: MediaItem = {
+      author: 'Author',
+      cover_url: '',
+      duration: 1000,
+      id: 'no_seq_book',
+      media_type: 'book',
+      progress: 0,
+      sequence: '1',
+      title: 'Book 1',
+    };
+    const onSelectItem = vi.fn();
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderBookCard(book, null, onSelectItem, false), container);
+
+    expect(container.querySelector('.sequence-badge')).toBeNull();
+  });
+});
+
+describe('renderBooksView()', (): void => {
+  it('renders series drill-down header with back navigation and count', (): void => {
+    const onBackToBooks = vi.fn();
+    const onSelectItem = vi.fn();
+    const context: BooksViewContext = {
+      displayBooks: [],
+      isRefreshing: false,
+      lang: 'en',
+      onBackToBooks,
+      onSelectItem,
+      onSelectSeries: vi.fn(),
+      searchQuery: '',
+      selectedSeriesBooks: [
+        {
+          author: 'Frank Herbert',
+          cover_url: '',
+          duration: 1000,
+          id: 'd1',
+          media_type: 'book',
+          progress: 0,
+          sequence: '1',
+          title: 'Dune',
+        },
+      ],
+      selectedSeriesId: 'ser_dune',
+      selectedSeriesTitle: 'Dune Chronicles',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderBooksView(context), container);
+
+    expect(container.querySelector('.podcast-header-title')?.textContent).toBe('Dune Chronicles');
+    expect(container.querySelector('.series-header-count')?.textContent).toBe('1');
+
+    const backBtn = container.querySelector('.series-header button');
+    backBtn?.dispatchEvent(new MouseEvent('click'));
+    expect(onBackToBooks).toHaveBeenCalled();
+  });
+
+  it('renders empty state when series contains no books', (): void => {
+    const context: BooksViewContext = {
+      displayBooks: [],
+      isRefreshing: false,
+      lang: 'en',
+      onBackToBooks: vi.fn(),
+      onSelectItem: vi.fn(),
+      onSelectSeries: vi.fn(),
+      searchQuery: '',
+      selectedSeriesBooks: [],
+      selectedSeriesId: 'ser_empty',
+      selectedSeriesTitle: 'Empty Series',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderBooksView(context), container);
+
+    expect(container.querySelector('.empty-state')?.textContent).toBe(
+      localize('card.no_items', 'en'),
+    );
+  });
+
+  it('renders main book list with series cards and standalone books', (): void => {
+    const onSelectSeries = vi.fn();
+    const context: BooksViewContext = {
+      displayBooks: [
+        {
+          author: 'Series Author',
+          books: [
+            {
+              author: 'Series Author',
+              cover_url: '',
+              duration: 1000,
+              id: 'sb1',
+              media_type: 'book',
+              progress: 0,
+              title: 'Book 1',
+            },
+            {
+              author: 'Series Author',
+              cover_url: '',
+              duration: 1000,
+              id: 'sb2',
+              media_type: 'book',
+              progress: 0,
+              title: 'Book 2',
+            },
+          ],
+          count: 2,
+          id: 'ser_main',
+          title: 'Main Series',
+        },
+        {
+          author: 'Single Author',
+          cover_url: '',
+          duration: 500,
+          id: 'single_b',
+          media_type: 'book',
+          progress: 0,
+          title: 'Single Book',
+        },
+      ],
+      isRefreshing: false,
+      lang: 'en',
+      onBackToBooks: vi.fn(),
+      onSelectItem: vi.fn(),
+      onSelectSeries,
+      searchQuery: '',
+      selectedSeriesBooks: [],
+      selectedSeriesId: null,
+      selectedSeriesTitle: '',
+    };
+
+    const container: HTMLDivElement = document.createElement('div');
+    render(renderBooksView(context), container);
+
+    expect(container.querySelector('.series-card')).not.toBeNull();
+    expect(container.querySelectorAll('.media-card').length).toBe(2);
   });
 });
