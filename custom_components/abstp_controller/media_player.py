@@ -68,13 +68,14 @@ from .const import (
     CONF_TARGET_PLAYERS,
     DEFAULT_NAME,
     DOMAIN,
+    ENTITY_ID_PREFIX_VIRTUAL_PLAYER,
     LOGGER,
-    PREFIX_VIRTUAL_PLAYER,
     SERVICE_PLAY,
     SESSION_STARTUP_TIMEOUT,
 )
 from .media_library import AbstpMediaLibrary
 from .services import resolve_media_metadata
+from .tracker import filter_target_player_ids
 
 
 def is_target_player_ready(hass: HomeAssistant, target_entity_id: str) -> bool:
@@ -175,7 +176,7 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
 
         target_slug = target_entity_id.removeprefix("media_player.")
         self._attr_unique_id = f"{entry.entry_id}_{target_entity_id}"
-        self.entity_id = f"media_player.{PREFIX_VIRTUAL_PLAYER}{target_slug}"
+        self.entity_id = f"{ENTITY_ID_PREFIX_VIRTUAL_PLAYER}{target_slug}"
         self._attr_has_entity_name = False
         self._attr_name = friendly_name or f"ABSTP {target_slug}"
 
@@ -742,25 +743,7 @@ async def async_setup_entry(
         CONF_TARGET_PLAYERS,
         data_dict.get(CONF_TARGET_PLAYERS, []),
     )
-    raw_target_list: list[object]
-    if isinstance(raw_targets, list):
-        raw_target_list = cast("list[object]", raw_targets)
-    elif isinstance(raw_targets, str):
-        raw_target_list = [raw_targets]
-    else:
-        raw_target_list = []
-
-    prefix = f"media_player.{PREFIX_VIRTUAL_PLAYER}"
-    configured_player_ids = [str(item).strip() for item in raw_target_list]
-    target_players: list[str] = [
-        entity_id
-        for entity_id in configured_player_ids
-        if (
-            entity_id.startswith("media_player.")
-            and not entity_id.startswith(prefix)
-            and "yandex_station_intents" not in entity_id.lower()
-        )
-    ]
+    target_players = filter_target_player_ids(raw_targets)
     raw_names = options_dict.get(
         CONF_PLAYER_FRIENDLY_NAMES,
         data_dict.get(CONF_PLAYER_FRIENDLY_NAMES, {}),

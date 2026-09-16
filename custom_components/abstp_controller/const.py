@@ -42,6 +42,7 @@ ATTR_SEQUENCE: Final = "sequence"
 CONF_TARGET_PLAYERS: Final = "target_players"
 CONF_PLAYER_FRIENDLY_NAMES: Final = "player_friendly_names"
 PREFIX_VIRTUAL_PLAYER: Final = "abstp_"
+ENTITY_ID_PREFIX_VIRTUAL_PLAYER: Final = f"media_player.{PREFIX_VIRTUAL_PLAYER}"
 ATTR_TARGET_PLAYER: Final = "target_player"
 ATTR_TARGET_AVAILABLE: Final = "target_available"
 

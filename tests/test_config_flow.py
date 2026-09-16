@@ -26,9 +26,7 @@ from custom_components.abstp_controller.config_flow import (
     AbstpOptionsFlowHandler,
     async_collect_friendly_names,
     async_validate_api,
-    filter_target_player_ids,
     get_supported_target_player_ids,
-    is_supported_target_player,
 )
 from custom_components.abstp_controller.const import (
     CONF_API_KEY,
@@ -42,6 +40,10 @@ from custom_components.abstp_controller.const import (
     STREAM_PROXY_MODE_ALWAYS,
     STREAM_PROXY_MODE_AUTO,
     STREAM_PROXY_MODE_NEVER,
+)
+from custom_components.abstp_controller.tracker import (
+    filter_target_player_ids,
+    is_supported_target_player,
 )
 
 

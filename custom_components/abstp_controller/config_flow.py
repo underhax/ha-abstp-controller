@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, cast, override
 
 import voluptuous as vol
 from aiohttp import ClientError
-from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -39,56 +38,15 @@ from .const import (
     DOMAIN,
     MAX_SPEED,
     MIN_SPEED,
-    PREFIX_VIRTUAL_PLAYER,
     SPEED_STEP,
     STREAM_PROXY_MODE_ALWAYS,
     STREAM_PROXY_MODE_AUTO,
     STREAM_PROXY_MODE_NEVER,
 )
-
-
-def filter_target_player_ids(raw_players: object) -> list[str]:
-    """Filter and sanitize target media player entity IDs."""
-    player_items: list[object]
-    if isinstance(raw_players, list):
-        player_items = cast("list[object]", raw_players)
-    elif isinstance(raw_players, str):
-        player_items = [raw_players]
-    else:
-        return []
-
-    result: list[str] = []
-    prefix = f"media_player.{PREFIX_VIRTUAL_PLAYER}"
-    for item in player_items:
-        entity_id = str(item).strip()
-        lower_id = entity_id.lower()
-        if (
-            entity_id.startswith("media_player.")
-            and not entity_id.startswith(prefix)
-            and "yandex_station_intents" not in lower_id
-        ):
-            result.append(entity_id)
-    return result
-
-
-def is_supported_target_player(state: State) -> bool:
-    """Evaluate if a media player entity supports audio playback."""
-    entity_id = state.entity_id
-    if not entity_id.startswith("media_player."):
-        return False
-
-    prefix = f"media_player.{PREFIX_VIRTUAL_PLAYER}"
-    if entity_id.startswith(prefix):
-        return False
-
-    lower_id = entity_id.lower()
-    if "yandex_station_intents" in lower_id:
-        return False
-
-    features = state.attributes.get("supported_features")
-    return isinstance(features, int) and bool(
-        features & MediaPlayerEntityFeature.PLAY_MEDIA
-    )
+from .tracker import (
+    filter_target_player_ids,
+    is_supported_target_player,
+)
 
 
 def get_supported_target_player_ids(hass: HomeAssistant) -> list[str]:

@@ -4,7 +4,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.const import (
@@ -24,15 +24,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from homeassistant.core import Event, EventStateChangedData, HomeAssistant
+    from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State
 
     from .api import AbstpApiClient
 
 from .api import AbstpApiError
 from .const import (
     DOMAIN,
+    ENTITY_ID_PREFIX_VIRTUAL_PLAYER,
     LOGGER,
-    PREFIX_VIRTUAL_PLAYER,
     SESSION_STARTUP_TIMEOUT,
 )
 
@@ -45,20 +45,53 @@ TERMINAL_PLAYER_STATES = {
 }
 
 
+def is_candidate_target_player_id(entity_id: str) -> bool:
+    """Evaluate whether an entity ID qualifies as a candidate target speaker."""
+    return (
+        entity_id.startswith("media_player.")
+        and not entity_id.startswith(ENTITY_ID_PREFIX_VIRTUAL_PLAYER)
+        and "yandex_station_intents" not in entity_id.lower()
+    )
+
+
+def is_supported_target_player(state: State) -> bool:
+    """Evaluate whether an entity supports playback as a target player."""
+    if not is_candidate_target_player_id(state.entity_id):
+        return False
+
+    features = state.attributes.get("supported_features")
+    return isinstance(features, int) and bool(
+        features & MediaPlayerEntityFeature.PLAY_MEDIA
+    )
+
+
+def filter_target_player_ids(raw_players: object) -> list[str]:
+    """Sanitize configured player entries to retain only valid target speaker IDs."""
+    player_items: list[object]
+    if isinstance(raw_players, list):
+        player_items = cast("list[object]", raw_players)
+    elif isinstance(raw_players, str):
+        player_items = [raw_players]
+    else:
+        return []
+
+    result: list[str] = []
+    for item in player_items:
+        entity_id = str(item).strip()
+        if is_candidate_target_player_id(entity_id):
+            result.append(entity_id)
+    return result
+
+
 def is_allowed_player(hass: HomeAssistant, entity_id: str) -> bool:
     """Check if an entity is an allowed media player."""
     if not entity_id:
         return False
 
-    if not entity_id.startswith("media_player."):
-        return False
-
-    prefix = f"media_player.{PREFIX_VIRTUAL_PLAYER}"
-    if entity_id.startswith(prefix):
+    if entity_id.startswith(ENTITY_ID_PREFIX_VIRTUAL_PLAYER):
         return True
 
-    lower_id = entity_id.lower()
-    if "yandex_station_intents" in lower_id:
+    if not is_candidate_target_player_id(entity_id):
         return False
 
     state = hass.states.get(entity_id)

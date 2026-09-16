@@ -25,8 +25,8 @@ from .api import AbstpApiError
 from .const import (
     CONF_TARGET_PLAYERS,
     DOMAIN,
+    ENTITY_ID_PREFIX_VIRTUAL_PLAYER,
     LOGGER,
-    PREFIX_VIRTUAL_PLAYER,
 )
 from .preferences import async_get_card_preference_store
 
@@ -57,7 +57,7 @@ def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
     current_ids = {
         entity_id
         for entity_id in hass.states.async_entity_ids("media_player")
-        if entity_id.startswith(f"media_player.{PREFIX_VIRTUAL_PLAYER}")
+        if entity_id.startswith(ENTITY_ID_PREFIX_VIRTUAL_PLAYER)
     }
     ordered_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -75,7 +75,7 @@ def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
             target_id = str(raw_target).strip()
             if target_id.startswith("media_player."):
                 target_slug = target_id.removeprefix("media_player.")
-                virtual_id = f"media_player.{PREFIX_VIRTUAL_PLAYER}{target_slug}"
+                virtual_id = f"{ENTITY_ID_PREFIX_VIRTUAL_PLAYER}{target_slug}"
             else:
                 continue
             if virtual_id in current_ids and virtual_id not in seen_ids:
@@ -362,7 +362,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             selected_player,
         )
         if selected_player and not selected_player.startswith(
-            f"media_player.{PREFIX_VIRTUAL_PLAYER}"
+            ENTITY_ID_PREFIX_VIRTUAL_PLAYER
         ):
             connection.send_error(
                 msg_id,

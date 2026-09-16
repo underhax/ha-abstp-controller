@@ -54,7 +54,7 @@ from custom_components.abstp_controller.const import (
     CONF_PLAYER_FRIENDLY_NAMES,
     CONF_TARGET_PLAYERS,
     DOMAIN,
-    PREFIX_VIRTUAL_PLAYER,
+    ENTITY_ID_PREFIX_VIRTUAL_PLAYER,
     SERVICE_PLAY,
 )
 from custom_components.abstp_controller.coordinator import (
@@ -213,14 +213,14 @@ async def test_async_setup_entry_creates_browser_and_target_facades(
 
     bedroom = added[0]
     assert isinstance(bedroom, AbstpVirtualMediaPlayer)
-    assert bedroom.entity_id == f"media_player.{PREFIX_VIRTUAL_PLAYER}bedroom"
+    assert bedroom.entity_id == f"{ENTITY_ID_PREFIX_VIRTUAL_PLAYER}bedroom"
     assert bedroom.unique_id == f"{entry_id}_media_player.bedroom"
     assert bedroom.name == "Custom Bedroom Speaker"
     assert bedroom.target_entity_id == "media_player.bedroom"
 
     living_room = added[1]
     assert isinstance(living_room, AbstpVirtualMediaPlayer)
-    assert living_room.entity_id == f"media_player.{PREFIX_VIRTUAL_PLAYER}living_room"
+    assert living_room.entity_id == f"{ENTITY_ID_PREFIX_VIRTUAL_PLAYER}living_room"
     assert living_room.unique_id == f"{entry_id}_media_player.living_room"
     assert living_room.name == "Living Room Station"
     assert living_room.target_entity_id == "media_player.living_room"
