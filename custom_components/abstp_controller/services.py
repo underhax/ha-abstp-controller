@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from homeassistant.core import HomeAssistant, ServiceCall
 
+    from .api import PlaySession
     from .coordinator import AbstpData, AbstpDataUpdateCoordinator
     from .tracker import SessionTracker
 
@@ -301,6 +302,99 @@ def _get_entry_components(
     return None
 
 
+async def _async_start_and_dispatch_playback(
+    hass: HomeAssistant,
+    coordinator: AbstpDataUpdateCoordinator,
+    tracker: SessionTracker,
+    target_id: str,
+    item_id: str,
+    episode_id: str | None,
+    speed: float,
+    current_time: float,
+    *,
+    initial_position: float | None = None,
+    proxy_mode: str | None = None,
+    blocking: bool = False,
+    context_id: str | None = None,
+) -> PlaySession:
+    """Start an abstp transcoding session and dispatch playback to the target player."""
+    LOGGER.debug(
+        "Starting proxy session: context=%s target=%s item=%s position=%s",
+        context_id,
+        target_id,
+        item_id,
+        current_time,
+    )
+    session = await coordinator.client.async_start_session(
+        item_id=item_id,
+        episode_id=episode_id,
+        speed=speed,
+        current_time=current_time,
+    )
+
+    tracker.register_session(
+        entity_id=target_id,
+        session_id=session.session_id,
+        item_id=item_id,
+        episode_id=episode_id,
+        speed=speed,
+        initial_position=(
+            session.current_time if initial_position is None else initial_position
+        ),
+        stream_url=session.stream_url,
+    )
+    token = tracker.get_stream_token(session.session_id) or ""
+    if proxy_mode is None:
+        config_entry = coordinator.config_entry
+        proxy_mode = (
+            resolve_stream_proxy_mode(
+                cast("Mapping[str, object]", config_entry.options),
+                cast("Mapping[str, object]", config_entry.data),
+            )
+            if config_entry is not None
+            else STREAM_PROXY_MODE_AUTO
+        )
+
+    use_proxy = should_proxy_stream(
+        proxy_mode,
+        str(coordinator.client.base_url),
+        target_id,
+    )
+    stream_url = (
+        resolve_proxied_stream_url(hass, session.session_id, token)
+        if use_proxy
+        else session.stream_url
+    )
+    LOGGER.debug(
+        "Audio stream route: mode=%s target=%s route=%s",
+        proxy_mode,
+        target_id,
+        "home_assistant_proxy" if use_proxy else "direct_abstp",
+    )
+    service_data = build_play_media_service_data(
+        hass=hass,
+        coordinator=coordinator,
+        entity_id=target_id,
+        stream_url=stream_url,
+        item_id=item_id,
+        episode_id=episode_id,
+    )
+
+    _ = await hass.services.async_call(
+        "media_player",
+        "play_media",
+        service_data,
+        blocking=blocking,
+    )
+    LOGGER.debug(
+        "Playback media play dispatched: context=%s target=%s session=%s",
+        context_id,
+        target_id,
+        session.session_id,
+    )
+    return session
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register all abstp custom service actions."""
 
@@ -378,66 +472,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     target_id,
                 )
 
-            LOGGER.debug(
-                "Starting proxy session: context=%s target=%s item=%s position=%s",
-                call.context.id,
-                target_id,
-                item_id,
-                current_time,
-            )
-            session = await coordinator.client.async_start_session(
+            _ = await _async_start_and_dispatch_playback(
+                hass=hass,
+                coordinator=coordinator,
+                tracker=tracker,
+                target_id=target_id,
                 item_id=item_id,
                 episode_id=episode_id,
                 speed=speed,
                 current_time=current_time,
-            )
-
-            tracker.register_session(
-                entity_id=target_id,
-                session_id=session.session_id,
-                item_id=item_id,
-                episode_id=episode_id,
-                speed=speed,
-                initial_position=session.current_time,
-                stream_url=session.stream_url,
-            )
-            token = tracker.get_stream_token(session.session_id) or ""
-            use_proxy = should_proxy_stream(
-                proxy_mode,
-                str(coordinator.client.base_url),
-                target_id,
-            )
-            stream_url = (
-                resolve_proxied_stream_url(hass, session.session_id, token)
-                if use_proxy
-                else session.stream_url
-            )
-            LOGGER.debug(
-                "Audio stream route: mode=%s target=%s route=%s",
-                proxy_mode,
-                target_id,
-                "home_assistant_proxy" if use_proxy else "direct_abstp",
-            )
-            service_data = build_play_media_service_data(
-                hass=hass,
-                coordinator=coordinator,
-                entity_id=target_id,
-                stream_url=stream_url,
-                item_id=item_id,
-                episode_id=episode_id,
-            )
-
-            _ = await hass.services.async_call(
-                "media_player",
-                "play_media",
-                service_data,
+                proxy_mode=proxy_mode,
                 blocking=False,
-            )
-            LOGGER.debug(
-                "Playback media play dispatched: context=%s target=%s session=%s",
-                call.context.id,
-                target_id,
-                session.session_id,
+                context_id=call.context.id,
             )
 
         await coordinator.async_request_refresh()
@@ -541,62 +587,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         _ = await tracker.async_stop_session_for_entity(entity_id)
 
-        new_session = await coordinator.client.async_start_session(
+        _ = await _async_start_and_dispatch_playback(
+            hass=hass,
+            coordinator=coordinator,
+            tracker=tracker,
+            target_id=entity_id,
             item_id=item_id,
             episode_id=episode_id,
             speed=new_speed,
             current_time=current_position,
-        )
-
-        tracker.register_session(
-            entity_id=entity_id,
-            session_id=new_session.session_id,
-            item_id=item_id,
-            episode_id=episode_id,
-            speed=new_speed,
             initial_position=current_position,
-            stream_url=new_session.stream_url,
-        )
-        token = tracker.get_stream_token(new_session.session_id) or ""
-        config_entry = coordinator.config_entry
-        proxy_mode = (
-            resolve_stream_proxy_mode(
-                cast("Mapping[str, object]", config_entry.options),
-                cast("Mapping[str, object]", config_entry.data),
-            )
-            if config_entry is not None
-            else STREAM_PROXY_MODE_AUTO
-        )
-        use_proxy = should_proxy_stream(
-            proxy_mode,
-            str(coordinator.client.base_url),
-            entity_id,
-        )
-        stream_url = (
-            resolve_proxied_stream_url(hass, new_session.session_id, token)
-            if use_proxy
-            else new_session.stream_url
-        )
-        LOGGER.debug(
-            "Audio stream route: mode=%s target=%s route=%s",
-            proxy_mode,
-            entity_id,
-            "home_assistant_proxy" if use_proxy else "direct_abstp",
-        )
-        service_data = build_play_media_service_data(
-            hass=hass,
-            coordinator=coordinator,
-            entity_id=entity_id,
-            stream_url=stream_url,
-            item_id=item_id,
-            episode_id=episode_id,
-        )
-
-        _ = await hass.services.async_call(
-            "media_player",
-            "play_media",
-            service_data,
             blocking=True,
+            context_id=call.context.id,
         )
 
         await coordinator.async_request_refresh()
