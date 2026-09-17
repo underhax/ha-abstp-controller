@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from homeassistant.components.websocket_api.connection import ActiveConnection
 
     from .coordinator import AbstpDataUpdateCoordinator
-    from .tracker import SessionTracker
 
 from .api import AbstpApiError
 from .const import (
@@ -28,6 +27,7 @@ from .const import (
     ENTITY_ID_PREFIX_VIRTUAL_PLAYER,
     LOGGER,
 )
+from .coordinator import get_coordinator, get_tracker
 from .preferences import async_get_card_preference_store
 
 WS_TYPE_GET_LIBRARY = f"{DOMAIN}/get_library"
@@ -38,18 +38,6 @@ WS_TYPE_SUBSCRIBE_CARD_PREFERENCE = f"{DOMAIN}/subscribe_card_preference"
 WS_TYPE_SET_CARD_PREFERENCE = f"{DOMAIN}/set_card_preference"
 CARD_ID_SCHEMA = vol.All(str, vol.Length(min=1, max=255))
 CARD_PREFERENCE_SUBSCRIPTIONS_KEY = "card_preference_subscriptions"
-
-
-def _get_active_coordinator(
-    hass: HomeAssistant,
-) -> AbstpDataUpdateCoordinator | None:
-    """Retrieve the first loaded data update coordinator instance."""
-    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN, {}))
-    if domain_data:
-        for data in domain_data.values():
-            if isinstance(data, dict) and "coordinator" in data:
-                return cast("AbstpDataUpdateCoordinator", data["coordinator"])
-    return None
 
 
 def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
@@ -83,16 +71,6 @@ def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
                 seen_ids.add(virtual_id)
     ordered_ids.extend(sorted(current_ids - seen_ids))
     return ordered_ids
-
-
-def _get_active_tracker(hass: HomeAssistant) -> SessionTracker | None:
-    """Retrieve the first loaded session tracker instance."""
-    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN, {}))
-    if domain_data:
-        for data in domain_data.values():
-            if isinstance(data, dict) and "tracker" in data:
-                return cast("SessionTracker", data["tracker"])
-    return None
 
 
 def build_library_data(
@@ -160,7 +138,7 @@ def build_library_data(
         }
         for item in coordinator.data.in_progress
     ]
-    tracker = _get_active_tracker(hass)
+    tracker = get_tracker(hass)
     active_sessions_data: dict[str, dict[str, object]] = {}
     if tracker:
         for entity_id, session in tracker.get_all_active_sessions().items():
@@ -193,7 +171,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
         msg: dict[str, object],
     ) -> None:
         """Handle request for catalog media items."""
-        coordinator = _get_active_coordinator(hass_inst)
+        coordinator = get_coordinator(hass_inst)
         msg_id = cast("int", msg["id"])
         if not coordinator:
             connection.send_error(
@@ -213,7 +191,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
         msg: dict[str, object],
     ) -> None:
         """Push coordinator updates to a connected card without polling it again."""
-        coordinator = _get_active_coordinator(hass_inst)
+        coordinator = get_coordinator(hass_inst)
         msg_id = cast("int", msg["id"])
         if not coordinator:
             connection.send_error(
@@ -407,7 +385,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
         msg: dict[str, object],
     ) -> None:
         """Handle request for podcast episodes list."""
-        coordinator = _get_active_coordinator(hass_inst)
+        coordinator = get_coordinator(hass_inst)
         msg_id = cast("int", msg["id"])
         if not coordinator:
             connection.send_error(
@@ -450,7 +428,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
         msg: dict[str, object],
     ) -> None:
         """Handle request for audiobook chapters list."""
-        coordinator = _get_active_coordinator(hass_inst)
+        coordinator = get_coordinator(hass_inst)
         msg_id = cast("int", msg["id"])
         if not coordinator:
             connection.send_error(

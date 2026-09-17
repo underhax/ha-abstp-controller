@@ -1226,6 +1226,72 @@ async def test_services_set_speed_without_active_session_logs_warning(
     await async_unload_services(hass)
 
 
+async def test_services_set_speed_resolves_target_player_from_state(
+    hass: HomeAssistant,
+) -> None:
+    """Test set_speed service forwards playback to the resolved target player."""
+    client = AsyncMock(spec=AbstpApiClient)
+    client.base_url = "https://abstp.example.com"
+    client.async_start_session = AsyncMock(
+        return_value=PlaySession(
+            session_id="sess_speed_target",
+            stream_url="https://abstp.example.com/stream/sess_speed_target.aac",
+            current_time=15.0,
+            duration=3600.0,
+        )
+    )
+    client.async_stop_session = AsyncMock(return_value=True)
+
+    config_entry = MagicMock(spec=ConfigEntry)
+    config_entry.options = {}
+    config_entry.data = {}
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    coordinator.config_entry = config_entry
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    tracker.register_session(
+        entity_id="media_player.bedroom",
+        session_id="sess_initial",
+        item_id="book_1",
+        episode_id=None,
+        speed=1.0,
+        initial_position=15.0,
+    )
+    hass.data[DOMAIN] = {
+        "test_entry_id": {"coordinator": coordinator, "tracker": tracker}
+    }
+    await async_setup_services(hass)
+
+    play_media_mock = AsyncMock()
+    hass.services.async_register("media_player", "play_media", play_media_mock)
+    hass.states.async_set(
+        "media_player.virtual_bedroom",
+        "playing",
+        {ATTR_TARGET_PLAYER: "media_player.bedroom"},
+    )
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_SET_SPEED,
+        {
+            "entity_id": "media_player.virtual_bedroom",
+            "speed": 1.75,
+        },
+        blocking=True,
+    )
+
+    play_call = cast("ServiceCall", play_media_mock.call_args[0][0])
+    assert play_call.data["entity_id"] == "media_player.bedroom"
+    assert tracker.get_active_session("media_player.bedroom") is not None
+    cast("AsyncMock", client.async_stop_session).assert_awaited_once_with(
+        "sess_initial"
+    )
+
+    _ = await tracker.async_stop_session_for_entity("media_player.bedroom")
+    await async_unload_services(hass)
+
+
 async def test_services_refresh_library_requests_coordinator_refresh(
     hass: HomeAssistant,
 ) -> None:

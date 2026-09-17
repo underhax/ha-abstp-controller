@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from .api import AbstpApiClient
 from .const import CONF_API_KEY, CONF_URL, DOMAIN, LOGGER, PLATFORMS
-from .coordinator import AbstpDataUpdateCoordinator
+from .coordinator import AbstpDataUpdateCoordinator, get_client, get_tracker
 from .lovelace import (
     async_register_resource,
     async_unregister_resource,
@@ -102,12 +102,7 @@ class AbstpCoverView(HomeAssistantView):
         """Stream the cover image from the backend proxy instance."""
         hass = cast("HomeAssistant", request.app["hass"])
         cors_headers = _resolve_cors_headers(request, hass)
-        domain_data = cast("dict[str, object]", hass.data.get(DOMAIN, {}))
-        client: AbstpApiClient | None = None
-        for data in domain_data.values():
-            if isinstance(data, dict) and "client" in data:
-                client = cast("AbstpApiClient", data["client"])
-                break
+        client = get_client(hass)
 
         if client is None:
             return web.Response(
@@ -143,15 +138,6 @@ class AbstpCoverView(HomeAssistantView):
             )
 
 
-def _get_active_tracker(hass: HomeAssistant) -> SessionTracker | None:
-    """Retrieve the active session tracker from the integration domain data."""
-    domain_data = cast("dict[str, object]", hass.data.get(DOMAIN, {}))
-    for data in domain_data.values():
-        if isinstance(data, dict) and "tracker" in data:
-            return cast("SessionTracker", data["tracker"])
-    return None
-
-
 @dataclass(frozen=True, slots=True)
 class _ValidatedStreamRequest:
     """Validated context for an audio stream proxy request."""
@@ -177,7 +163,7 @@ class AbstpStreamView(HomeAssistantView):
         cors_headers = _resolve_cors_headers(request, hass)
         error_headers = {**cors_headers, **SECURITY_HEADERS}
 
-        tracker = _get_active_tracker(hass)
+        tracker = get_tracker(hass)
         if tracker is None:
             return web.Response(status=404, headers=error_headers)
 

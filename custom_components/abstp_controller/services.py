@@ -42,6 +42,7 @@ from .const import (
     STREAM_PROXY_MODE_AUTO,
     STREAM_PROXY_MODE_NEVER,
 )
+from .coordinator import get_coordinators, get_entry_components
 
 
 def _validate_entity_ids(value: object) -> list[str]:
@@ -295,23 +296,6 @@ def resolve_target_player_id(hass: HomeAssistant, entity_id: str) -> str:
     return entity_id
 
 
-def _get_entry_components(
-    hass: HomeAssistant,
-) -> tuple[AbstpDataUpdateCoordinator, SessionTracker] | None:
-    """Retrieve the active coordinator and tracker from loaded domain entries."""
-    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN))
-    if not domain_data:
-        return None
-
-    for data in domain_data.values():
-        if isinstance(data, dict) and "coordinator" in data and "tracker" in data:
-            return (
-                cast("AbstpDataUpdateCoordinator", data["coordinator"]),
-                cast("SessionTracker", data["tracker"]),
-            )
-    return None
-
-
 async def _async_start_and_dispatch_playback(
     hass: HomeAssistant,
     coordinator: AbstpDataUpdateCoordinator,
@@ -458,7 +442,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_play(call: ServiceCall) -> None:
         """Handle starting playback on specified media players."""
-        components = _get_entry_components(hass)
+        components = get_entry_components(hass)
         if not components:
             LOGGER.error("No active abstp integration entries loaded")
             return
@@ -543,7 +527,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_stop(call: ServiceCall) -> None:
         """Handle stopping playback and terminating transcoding sessions."""
-        components = _get_entry_components(hass)
+        components = get_entry_components(hass)
         if not components:
             return
 
@@ -592,7 +576,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_set_speed(call: ServiceCall) -> None:
         """Handle dynamic on-the-fly speed switching during playback."""
-        components = _get_entry_components(hass)
+        components = get_entry_components(hass)
         if not components:
             return
 
@@ -602,22 +586,24 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         speed_obj = call_data[ATTR_SPEED]
         new_speed = float(str(speed_obj))
 
-        active_session = tracker.get_active_session(entity_id)
+        target_id = resolve_target_player_id(hass, entity_id)
+
+        active_session = tracker.get_active_session(target_id)
         if not active_session:
             LOGGER.warning("No active session found for entity %s", entity_id)
             return
 
-        current_position = tracker.estimate_current_position(entity_id)
+        current_position = tracker.estimate_current_position(target_id)
         item_id = active_session.item_id
         episode_id = active_session.episode_id
 
-        _ = await tracker.async_stop_session_for_entity(entity_id)
+        _ = await tracker.async_stop_session_for_entity(target_id)
 
         _ = await _async_start_and_dispatch_playback(
             hass=hass,
             coordinator=coordinator,
             tracker=tracker,
-            target_id=entity_id,
+            target_id=target_id,
             item_id=item_id,
             episode_id=episode_id,
             speed=new_speed,
@@ -632,12 +618,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_refresh(call: ServiceCall) -> None:
         """Handle reloading library catalog from abstp."""
         _ = call
-        domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN, {}))
-        if domain_data:
-            for data in domain_data.values():
-                if isinstance(data, dict) and "coordinator" in data:
-                    coord = cast("AbstpDataUpdateCoordinator", data["coordinator"])
-                    await coord.async_request_refresh()
+        for coord in get_coordinators(hass):
+            await coord.async_request_refresh()
 
     hass.services.async_register(DOMAIN, SERVICE_PLAY, handle_play, schema=PLAY_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop, schema=STOP_SCHEMA)

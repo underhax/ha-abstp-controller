@@ -1,14 +1,18 @@
 """DataUpdateCoordinator for the Audiobookshelf Transcoder Proxy integration."""
 
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, cast, override
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+    from .tracker import SessionTracker
 
 from .api import AbstpApiClient, AbstpApiError, InProgressItem, MediaItem
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, LOGGER
@@ -84,3 +88,59 @@ class AbstpDataUpdateCoordinator(DataUpdateCoordinator[AbstpData]):
         except AbstpApiError as err:
             msg = f"Error communicating with abstp: {err}"
             raise UpdateFailed(msg) from err
+
+
+def get_coordinators(hass: HomeAssistant) -> list[AbstpDataUpdateCoordinator]:
+    """Locate active coordinators across loaded entries for batch state refreshes."""
+    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN))
+    if not domain_data:
+        return []
+    return [
+        cast("AbstpDataUpdateCoordinator", data["coordinator"])
+        for data in domain_data.values()
+        if isinstance(data, dict) and "coordinator" in data
+    ]
+
+
+def get_coordinator(hass: HomeAssistant) -> AbstpDataUpdateCoordinator | None:
+    """Locate the primary coordinator instance for catalog query and update routing."""
+    coordinators = get_coordinators(hass)
+    return coordinators[0] if coordinators else None
+
+
+def get_tracker(hass: HomeAssistant) -> SessionTracker | None:
+    """Locate active session tracker instance for playback tracking and lifecycle."""
+    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN))
+    if not domain_data:
+        return None
+    for data in domain_data.values():
+        if isinstance(data, dict) and "tracker" in data:
+            return cast("SessionTracker", data["tracker"])
+    return None
+
+
+def get_client(hass: HomeAssistant) -> AbstpApiClient | None:
+    """Locate backend API client instance for media asset streaming and proxying."""
+    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN))
+    if not domain_data:
+        return None
+    for data in domain_data.values():
+        if isinstance(data, dict) and "client" in data:
+            return cast("AbstpApiClient", data["client"])
+    return None
+
+
+def get_entry_components(
+    hass: HomeAssistant,
+) -> tuple[AbstpDataUpdateCoordinator, SessionTracker] | None:
+    """Locate paired coordinator and tracker instances for service executions."""
+    domain_data = cast("dict[str, object] | None", hass.data.get(DOMAIN))
+    if not domain_data:
+        return None
+    for data in domain_data.values():
+        if isinstance(data, dict) and "coordinator" in data and "tracker" in data:
+            return (
+                cast("AbstpDataUpdateCoordinator", data["coordinator"]),
+                cast("SessionTracker", data["tracker"]),
+            )
+    return None
