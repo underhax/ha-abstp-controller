@@ -1486,6 +1486,40 @@ async def test_media_stop_without_stop_or_pause_feature(hass: HomeAssistant) -> 
     mock_stop.assert_called_once_with("media_player.talker")
 
 
+async def test_media_stop_missing_target_state_skips_service(
+    hass: HomeAssistant,
+) -> None:
+    """Test stop skips dispatching services when target player state is absent."""
+    client = MagicMock(spec=AbstpApiClient)
+    client.base_url = "http://abstp.example.com:8099"
+    coordinator = AbstpDataUpdateCoordinator(hass, client)
+    coordinator.data = AbstpData(healthy=True, books=[], podcasts=[])
+    tracker = SessionTracker(hass, client)
+    entry = MagicMock(spec=ConfigEntry)
+    entry.entry_id = "test_entry_stop_missing_state"
+    entry.options = {}
+    entry.data = {}
+
+    player = AbstpVirtualMediaPlayer(
+        coordinator=coordinator,
+        tracker=tracker,
+        entry=entry,
+        target_entity_id="media_player.missing",
+    )
+    _attach_player_to_hass(player, hass)
+
+    stop_calls = _mock_service(hass, "media_player", "media_stop")
+    pause_calls = _mock_service(hass, "media_player", "media_pause")
+    with patch.object(
+        tracker, "async_stop_session_for_entity", new_callable=AsyncMock
+    ) as mock_stop:
+        await player.async_media_stop()
+
+    assert len(stop_calls) == 0
+    assert len(pause_calls) == 0
+    mock_stop.assert_called_once_with("media_player.missing")
+
+
 async def test_media_seek_with_episode_id(hass: HomeAssistant) -> None:
     """Test seek forwards episode id together with item id."""
     client = MagicMock(spec=AbstpApiClient)

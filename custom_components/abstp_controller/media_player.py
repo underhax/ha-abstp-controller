@@ -24,7 +24,6 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
@@ -74,7 +73,7 @@ from .const import (
     SESSION_STARTUP_TIMEOUT,
 )
 from .media_library import AbstpMediaLibrary
-from .services import resolve_media_metadata
+from .services import async_stop_target_player, resolve_media_metadata
 from .tracker import filter_target_player_ids
 
 
@@ -549,34 +548,13 @@ class AbstpVirtualMediaPlayer(MediaPlayerEntity):
         elif self._attr_media_position:
             current_pos = float(self._attr_media_position)
 
-        target_state = self.hass.states.get(target_id)
-        features_num = (
-            target_state.attributes.get("supported_features", 0) if target_state else 0
+        await async_stop_target_player(
+            self.hass,
+            target_id,
+            context=self._context,
+            blocking=True,
+            fallback_to_stop=False,
         )
-        features = MediaPlayerEntityFeature(int(features_num))
-
-        if bool(features & MediaPlayerEntityFeature.STOP):
-            stop_service = "media_stop"
-        elif (
-            bool(features & MediaPlayerEntityFeature.PAUSE)
-            and target_state
-            and target_state.state != STATE_PAUSED
-        ):
-            stop_service = "media_pause"
-        else:
-            stop_service = None
-
-        if stop_service:
-            try:
-                _ = await self.hass.services.async_call(
-                    "media_player",
-                    stop_service,
-                    {ATTR_ENTITY_ID: target_id},
-                    blocking=True,
-                    context=self._context,
-                )
-            except HomeAssistantError as err:
-                LOGGER.warning("Failed to stop target player %s: %s", target_id, err)
 
         _ = await self._tracker.async_stop_session_for_entity(target_id)
         self._attr_state = MediaPlayerState.IDLE

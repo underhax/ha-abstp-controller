@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, STATE_PAUSED
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.network import NoURLAvailableError, get_url
@@ -14,7 +14,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.core import Context, HomeAssistant, ServiceCall
 
     from .api import PlaySession
     from .coordinator import AbstpData, AbstpDataUpdateCoordinator
@@ -395,6 +395,54 @@ async def _async_start_and_dispatch_playback(
     return session
 
 
+async def async_stop_target_player(
+    hass: HomeAssistant,
+    target_id: str,
+    context: Context | None = None,
+    *,
+    blocking: bool = False,
+    fallback_to_stop: bool = False,
+) -> None:
+    """Dispatch stop or pause to release hardware resources based on features."""
+    target_state = hass.states.get(target_id)
+    features: int = 0
+    if target_state is not None:
+        features = cast("int", target_state.attributes.get("supported_features", 0))
+    elif fallback_to_stop:
+        features = MediaPlayerEntityFeature.STOP
+
+    service: str | None
+    if features & MediaPlayerEntityFeature.STOP:
+        service = "media_stop"
+    elif (features & MediaPlayerEntityFeature.PAUSE) and (
+        target_state is None or target_state.state != STATE_PAUSED
+    ):
+        service = "media_pause"
+    else:
+        service = None
+
+    if not service:
+        return
+
+    try:
+        _ = await hass.services.async_call(
+            "media_player",
+            service,
+            {ATTR_ENTITY_ID: target_id},
+            blocking=blocking,
+            context=context,
+        )
+        LOGGER.debug(
+            "Physical stop: context=%s target=%s service=%s blocking=%s",
+            context.id if context is not None else None,
+            target_id,
+            service,
+            blocking,
+        )
+    except HomeAssistantError as err:
+        LOGGER.warning("Failed to stop target player %s: %s", target_id, err)
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register all abstp custom service actions."""
 
@@ -528,35 +576,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     call.context.id,
                     target_id,
                 )
-                target_state = hass.states.get(target_id)
-                features = (
-                    cast("int", target_state.attributes.get("supported_features", 0))
-                    if target_state
-                    else MediaPlayerEntityFeature.STOP
+                await async_stop_target_player(
+                    hass,
+                    target_id,
+                    context=call.context,
+                    blocking=False,
+                    fallback_to_stop=True,
                 )
-                service = (
-                    "media_stop"
-                    if (features & MediaPlayerEntityFeature.STOP)
-                    else (
-                        "media_pause"
-                        if (features & MediaPlayerEntityFeature.PAUSE)
-                        else None
-                    )
-                )
-                if service:
-                    _ = await hass.services.async_call(
-                        "media_player",
-                        service,
-                        {"entity_id": target_id},
-                        blocking=False,
-                    )
-                    LOGGER.debug(
-                        "Physical stop: context=%s target=%s service=%s blocking=%s",
-                        call.context.id,
-                        target_id,
-                        service,
-                        False,
-                    )
 
         if session_id:
             _ = await coordinator.client.async_stop_session(session_id)

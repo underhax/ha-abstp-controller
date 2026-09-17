@@ -8,6 +8,9 @@ import pytest
 import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_PAUSED, STATE_PLAYING
+from homeassistant.core import Context
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.network import NoURLAvailableError
 
 if TYPE_CHECKING:
@@ -40,6 +43,7 @@ from custom_components.abstp_controller.coordinator import (
 from custom_components.abstp_controller.services import (
     PLAY_SCHEMA,
     async_setup_services,
+    async_stop_target_player,
     async_unload_services,
     build_play_media_service_data,
     clean_header_value,
@@ -754,6 +758,126 @@ async def test_services_stop_feature_fallback(
         media_pause_mock.assert_not_called()
 
     await async_unload_services(hass)
+
+
+async def test_services_stop_missing_target_state_falls_back_to_stop(
+    hass: HomeAssistant,
+) -> None:
+    """Test handle_stop falls back to media_stop when target state is absent."""
+    client = AsyncMock(spec=AbstpApiClient)
+    coordinator = MagicMock(spec=AbstpDataUpdateCoordinator)
+    coordinator.client = client
+    tracker = SessionTracker(hass, client)
+
+    hass.data[DOMAIN] = {
+        "test_entry_id": {
+            "coordinator": coordinator,
+            "tracker": tracker,
+        }
+    }
+
+    await async_setup_services(hass)
+
+    media_stop_mock = AsyncMock()
+    media_pause_mock = AsyncMock()
+    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    hass.services.async_register("media_player", "media_pause", media_pause_mock)
+
+    _ = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_STOP,
+        {"entity_id": ["media_player.absent_target"]},
+        blocking=True,
+    )
+
+    media_stop_mock.assert_called_once()
+    media_pause_mock.assert_not_called()
+
+    await async_unload_services(hass)
+
+
+@pytest.mark.parametrize(
+    (
+        "has_state",
+        "state_val",
+        "supported_features",
+        "fallback_to_stop",
+        "expected_service",
+    ),
+    [
+        (False, None, 0, False, None),
+        (False, None, 0, True, "media_stop"),
+        (True, STATE_PLAYING, MediaPlayerEntityFeature.STOP, False, "media_stop"),
+        (True, STATE_PLAYING, MediaPlayerEntityFeature.PAUSE, False, "media_pause"),
+        (True, STATE_PAUSED, MediaPlayerEntityFeature.PAUSE, False, None),
+        (True, STATE_PLAYING, MediaPlayerEntityFeature.VOLUME_SET, False, None),
+    ],
+)
+async def test_async_stop_target_player_scenarios(
+    hass: HomeAssistant,
+    has_state: bool,
+    state_val: str | None,
+    supported_features: int,
+    fallback_to_stop: bool,
+    expected_service: str | None,
+) -> None:
+    """Test async_stop_target_player respects caller fallback and pause semantics."""
+    target_id = "media_player.direct_target"
+    if has_state:
+        hass.states.async_set(
+            target_id,
+            state_val or STATE_PLAYING,
+            {"supported_features": supported_features},
+        )
+
+    media_stop_mock = AsyncMock()
+    media_pause_mock = AsyncMock()
+    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    hass.services.async_register("media_player", "media_pause", media_pause_mock)
+
+    ctx = Context(id="test_context")
+    await async_stop_target_player(
+        hass,
+        target_id,
+        context=ctx,
+        blocking=True,
+        fallback_to_stop=fallback_to_stop,
+    )
+
+    if expected_service == "media_stop":
+        media_stop_mock.assert_called_once()
+        media_pause_mock.assert_not_called()
+    elif expected_service == "media_pause":
+        media_stop_mock.assert_not_called()
+        media_pause_mock.assert_called_once()
+    else:
+        media_stop_mock.assert_not_called()
+        media_pause_mock.assert_not_called()
+
+
+async def test_async_stop_target_player_error_logged(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test async_stop_target_player captures service failure without raising."""
+    target_id = "media_player.failing_target"
+    hass.states.async_set(
+        target_id,
+        STATE_PLAYING,
+        {"supported_features": MediaPlayerEntityFeature.STOP},
+    )
+
+    media_stop_mock = AsyncMock(side_effect=HomeAssistantError("Device unreachable"))
+    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.abstp_controller"):
+        await async_stop_target_player(
+            hass,
+            target_id,
+            blocking=True,
+        )
+
+    assert "Failed to stop target player media_player.failing_target" in caplog.text
 
 
 async def test_services_log_missing_entries_on_play(
