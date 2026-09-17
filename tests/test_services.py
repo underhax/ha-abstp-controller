@@ -51,6 +51,7 @@ from custom_components.abstp_controller.services import (
     resolve_media_metadata,
     resolve_proxied_stream_url,
     resolve_stream_proxy_mode,
+    resolve_target_player_id,
     should_proxy_stream,
 )
 from custom_components.abstp_controller.tracker import SessionTracker
@@ -1246,3 +1247,46 @@ async def test_services_refresh_library_requests_coordinator_refresh(
 
     refresh_mock.assert_awaited()
     await async_unload_services(hass)
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "state_attrs", "expected_target_id"),
+    [
+        (
+            "media_player.abstp_bedroom",
+            {ATTR_TARGET_PLAYER: "media_player.bedroom"},
+            "media_player.bedroom",
+        ),
+        (
+            "media_player.bedroom",
+            {},
+            "media_player.bedroom",
+        ),
+        (
+            "media_player.missing",
+            None,
+            "media_player.missing",
+        ),
+        (
+            "media_player.abstp_empty",
+            {ATTR_TARGET_PLAYER: ""},
+            "media_player.abstp_empty",
+        ),
+        (
+            "media_player.abstp_invalid",
+            {ATTR_TARGET_PLAYER: 12345},
+            "media_player.abstp_invalid",
+        ),
+    ],
+)
+def test_resolve_target_player_id(
+    hass: HomeAssistant,
+    entity_id: str,
+    state_attrs: dict[str, object] | None,
+    expected_target_id: str,
+) -> None:
+    """Test target player resolution unwraps target attributes or preserves entity."""
+    if state_attrs is not None:
+        hass.states.async_set(entity_id, STATE_PLAYING, state_attrs)
+
+    assert resolve_target_player_id(hass, entity_id) == expected_target_id

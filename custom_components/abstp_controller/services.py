@@ -285,6 +285,16 @@ def build_play_media_service_data(
     }
 
 
+def resolve_target_player_id(hass: HomeAssistant, entity_id: str) -> str:
+    """Unwrap physical player ID from virtual attributes for playback routing."""
+    state = hass.states.get(entity_id)
+    if state and ATTR_TARGET_PLAYER in state.attributes:
+        raw_target = cast("object", state.attributes[ATTR_TARGET_PLAYER])
+        if isinstance(raw_target, str) and raw_target:
+            return raw_target
+    return entity_id
+
+
 def _get_entry_components(
     hass: HomeAssistant,
 ) -> tuple[AbstpDataUpdateCoordinator, SessionTracker] | None:
@@ -485,12 +495,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         speed = float(str(speed_obj))
 
         for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            target_id = entity_id
-            if state and ATTR_TARGET_PLAYER in state.attributes:
-                raw_target = cast("object", state.attributes[ATTR_TARGET_PLAYER])
-                if isinstance(raw_target, str) and raw_target:
-                    target_id = raw_target
+            target_id = resolve_target_player_id(hass, entity_id)
 
             active_session = tracker.get_active_session(target_id)
             if active_session:
@@ -555,12 +560,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         if entity_ids:
             for entity_id in entity_ids:
-                state = hass.states.get(entity_id)
-                target_id = entity_id
-                if state and ATTR_TARGET_PLAYER in state.attributes:
-                    raw_target = cast("object", state.attributes[ATTR_TARGET_PLAYER])
-                    if isinstance(raw_target, str) and raw_target:
-                        target_id = raw_target
+                target_id = resolve_target_player_id(hass, entity_id)
 
                 active_session = tracker.get_active_session(target_id)
                 LOGGER.debug(
