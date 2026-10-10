@@ -2,23 +2,29 @@
 
 from typing import TYPE_CHECKING, cast
 
-import voluptuous as vol
-from homeassistant.components.websocket_api import async_register_command
-from homeassistant.components.websocket_api.decorators import (
-    async_response,
-    websocket_command,
+import homeassistant.components.websocket_api as websocket_api_module
+from homeassistant.components.websocket_api import (
+    decorators as websocket_api_decorators_module,
 )
+from homeassistant.components.websocket_api.decorators import async_response
 from homeassistant.components.websocket_api.messages import event_message
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from probatio import All, Any, Length, Marker, Optional, Required
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from homeassistant.components.websocket_api.connection import ActiveConnection
 
     from .coordinator import AbstpDataUpdateCoordinator
+
+    WebSocketCommandDecorator = Callable[
+        [dict[str | Marker, object]],
+        Callable[[Callable[..., object]], Callable[..., object]],
+    ]
+    WebSocketCommandRegistrar = Callable[[HomeAssistant, Callable[..., object]], None]
 
 from .api import AbstpApiError
 from .const import (
@@ -36,8 +42,16 @@ WS_TYPE_GET_CHAPTERS = f"{DOMAIN}/get_chapters"
 WS_TYPE_SUBSCRIBE_LIBRARY_UPDATES = f"{DOMAIN}/subscribe_library_updates"
 WS_TYPE_SUBSCRIBE_CARD_PREFERENCE = f"{DOMAIN}/subscribe_card_preference"
 WS_TYPE_SET_CARD_PREFERENCE = f"{DOMAIN}/set_card_preference"
-CARD_ID_SCHEMA = vol.All(str, vol.Length(min=1, max=255))
+CARD_ID_SCHEMA = All(str, Length(min=1, max=255))
 CARD_PREFERENCE_SUBSCRIPTIONS_KEY = "card_preference_subscriptions"
+
+
+_websocket_api = cast(
+    "WebSocketCommandRegistrar", websocket_api_module.async_register_command
+)
+_websocket_command = cast(
+    "WebSocketCommandDecorator", websocket_api_decorators_module.websocket_command
+)
 
 
 def _get_virtual_player_ids(hass: HomeAssistant) -> list[str]:
@@ -163,7 +177,7 @@ def build_library_data(
 def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     """Register custom websocket commands for frontend dashboard communication."""
 
-    @websocket_command({vol.Required("type"): WS_TYPE_GET_LIBRARY})
+    @_websocket_command({Required("type"): WS_TYPE_GET_LIBRARY})
     @async_response
     async def ws_get_library(
         hass_inst: HomeAssistant,
@@ -183,7 +197,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
 
         connection.send_result(msg_id, build_library_data(hass_inst, coordinator))
 
-    @websocket_command({vol.Required("type"): WS_TYPE_SUBSCRIBE_LIBRARY_UPDATES})
+    @_websocket_command({Required("type"): WS_TYPE_SUBSCRIBE_LIBRARY_UPDATES})
     @async_response
     async def ws_subscribe_library_updates(
         hass_inst: HomeAssistant,
@@ -212,10 +226,10 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
         connection.subscriptions[msg_id] = coordinator_unsubscribe
         connection.send_result(msg_id, {})
 
-    @websocket_command(
+    @_websocket_command(
         {
-            vol.Required("type"): WS_TYPE_SUBSCRIBE_CARD_PREFERENCE,
-            vol.Required("card_id"): CARD_ID_SCHEMA,
+            Required("type"): WS_TYPE_SUBSCRIBE_CARD_PREFERENCE,
+            Required("card_id"): CARD_ID_SCHEMA,
         }
     )
     @async_response
@@ -310,13 +324,11 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             )
         )
 
-    @websocket_command(
+    @_websocket_command(
         {
-            vol.Required("type"): WS_TYPE_SET_CARD_PREFERENCE,
-            vol.Required("card_id"): CARD_ID_SCHEMA,
-            vol.Optional("selected_player", default=None): vol.Any(
-                None, "", cv.entity_id
-            ),
+            Required("type"): WS_TYPE_SET_CARD_PREFERENCE,
+            Required("card_id"): CARD_ID_SCHEMA,
+            Optional("selected_player", default=None): Any(None, "", cv.entity_id),
         }
     )
     @async_response
@@ -372,10 +384,10 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             },
         )
 
-    @websocket_command(
+    @_websocket_command(
         {
-            vol.Required("type"): WS_TYPE_GET_EPISODES,
-            vol.Required("podcast_id"): str,
+            Required("type"): WS_TYPE_GET_EPISODES,
+            Required("podcast_id"): str,
         }
     )
     @async_response
@@ -415,10 +427,10 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             LOGGER.exception("Failed to fetch episodes for %s", podcast_id)
             connection.send_error(msg_id, "fetch_failed", str(err))
 
-    @websocket_command(
+    @_websocket_command(
         {
-            vol.Required("type"): WS_TYPE_GET_CHAPTERS,
-            vol.Required("book_id"): str,
+            Required("type"): WS_TYPE_GET_CHAPTERS,
+            Required("book_id"): str,
         }
     )
     @async_response
@@ -454,9 +466,9 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
             LOGGER.exception("Failed to fetch chapters for %s", book_id)
             connection.send_error(msg_id, "fetch_failed", str(err))
 
-    async_register_command(hass, ws_get_library)
-    async_register_command(hass, ws_subscribe_library_updates)
-    async_register_command(hass, ws_subscribe_card_preference)
-    async_register_command(hass, ws_set_card_preference)
-    async_register_command(hass, ws_get_episodes)
-    async_register_command(hass, ws_get_chapters)
+    _websocket_api(hass, ws_get_library)
+    _websocket_api(hass, ws_subscribe_library_updates)
+    _websocket_api(hass, ws_subscribe_card_preference)
+    _websocket_api(hass, ws_set_card_preference)
+    _websocket_api(hass, ws_get_episodes)
+    _websocket_api(hass, ws_get_chapters)

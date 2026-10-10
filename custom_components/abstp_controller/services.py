@@ -1,18 +1,18 @@
 """Service actions for Audiobookshelf Transcoder Proxy Controller."""
 
 from ipaddress import ip_address
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import urlsplit
 
-import voluptuous as vol
 from homeassistant.components.media_player.const import MediaPlayerEntityFeature
 from homeassistant.const import ATTR_ENTITY_ID, STATE_PAUSED
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.network import NoURLAvailableError, get_url
+from probatio import All, Coerce, Invalid, Optional, Range, Required, Schema
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from homeassistant.core import Context, HomeAssistant, ServiceCall
 
@@ -45,6 +45,31 @@ from .const import (
 from .coordinator import get_coordinators, get_entry_components
 
 
+class _ServiceRegistry(Protocol):
+    """Provide a concrete type for Home Assistant's Probatio schema union."""
+
+    def async_register(
+        self,
+        domain: str,
+        service: str,
+        service_func: Callable[..., object],
+        schema: Schema | None = None,
+    ) -> None: ...
+
+
+def register_service(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    handler: Callable[..., object],
+    *,
+    schema: Schema | None = None,
+) -> None:
+    """Register a service through Home Assistant's weakly typed schema boundary."""
+    registry = cast("_ServiceRegistry", cast("object", hass.services))
+    registry.async_register(domain, service, handler, schema=schema)
+
+
 def _validate_entity_ids(value: object) -> list[str]:
     """Validate and normalize entity identifiers."""
     if isinstance(value, str):
@@ -52,38 +77,34 @@ def _validate_entity_ids(value: object) -> list[str]:
     if isinstance(value, list):
         return [cv.entity_id(item) for item in cast("list[object]", value)]
     msg = f"Expected str or list of str, got {type(value)}"
-    raise vol.Invalid(msg)
+    raise Invalid(msg)
 
 
-PLAY_SCHEMA = vol.Schema(
+PLAY_SCHEMA = Schema(
     {
-        vol.Required("entity_id"): _validate_entity_ids,
-        vol.Required(ATTR_ITEM_ID): cv.string,
-        vol.Optional(ATTR_EPISODE_ID): cv.string,
-        vol.Optional(ATTR_SPEED): vol.All(
-            vol.Coerce(float), vol.Range(min=MIN_SPEED, max=MAX_SPEED)
-        ),
-        vol.Optional(ATTR_CURRENT_TIME, default=0.0): vol.Coerce(float),
+        Required("entity_id"): _validate_entity_ids,
+        Required(ATTR_ITEM_ID): cv.string,
+        Optional(ATTR_EPISODE_ID): cv.string,
+        Optional(ATTR_SPEED): All(Coerce(float), Range(min=MIN_SPEED, max=MAX_SPEED)),
+        Optional(ATTR_CURRENT_TIME, default=0.0): Coerce(float),
     }
 )
 
-STOP_SCHEMA = vol.Schema(
+STOP_SCHEMA = Schema(
     {
-        vol.Optional("entity_id"): _validate_entity_ids,
-        vol.Optional(ATTR_SESSION_ID): cv.string,
+        Optional("entity_id"): _validate_entity_ids,
+        Optional(ATTR_SESSION_ID): cv.string,
     }
 )
 
-SET_SPEED_SCHEMA = vol.Schema(
+SET_SPEED_SCHEMA = Schema(
     {
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required(ATTR_SPEED): vol.All(
-            vol.Coerce(float), vol.Range(min=MIN_SPEED, max=MAX_SPEED)
-        ),
+        Required("entity_id"): cv.entity_id,
+        Required(ATTR_SPEED): All(Coerce(float), Range(min=MIN_SPEED, max=MAX_SPEED)),
     }
 )
 
-REFRESH_SCHEMA = vol.Schema({})
+REFRESH_SCHEMA = Schema({})
 
 
 def clean_header_value(value: str | None) -> str:
@@ -621,12 +642,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for coord in get_coordinators(hass):
             await coord.async_request_refresh()
 
-    hass.services.async_register(DOMAIN, SERVICE_PLAY, handle_play, schema=PLAY_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop, schema=STOP_SCHEMA)
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_SPEED, handle_set_speed, schema=SET_SPEED_SCHEMA
+    register_service(hass, DOMAIN, SERVICE_PLAY, handle_play, schema=PLAY_SCHEMA)
+    register_service(hass, DOMAIN, SERVICE_STOP, handle_stop, schema=STOP_SCHEMA)
+    register_service(
+        hass,
+        DOMAIN,
+        SERVICE_SET_SPEED,
+        handle_set_speed,
+        schema=SET_SPEED_SCHEMA,
     )
-    hass.services.async_register(
+    register_service(
+        hass,
         DOMAIN,
         SERVICE_REFRESH_LIBRARY,
         handle_refresh,

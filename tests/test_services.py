@@ -48,6 +48,7 @@ from custom_components.abstp_controller.services import (
     build_play_media_service_data,
     clean_header_value,
     is_loopback_url,
+    register_service,
     resolve_media_metadata,
     resolve_proxied_stream_url,
     resolve_stream_proxy_mode,
@@ -462,8 +463,8 @@ async def test_services_play_and_stop(hass: HomeAssistant) -> None:
 
     play_media_mock = AsyncMock()
     media_stop_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
 
     with patch(
         "custom_components.abstp_controller.services.get_url",
@@ -569,7 +570,7 @@ async def test_services_play_uses_direct_stream_by_default(
     await async_setup_services(hass)
 
     play_media_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
     _ = await hass.services.async_call(
         DOMAIN,
         SERVICE_PLAY,
@@ -738,8 +739,8 @@ async def test_services_stop_feature_fallback(
 
     media_stop_mock = AsyncMock()
     media_pause_mock = AsyncMock()
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
-    hass.services.async_register("media_player", "media_pause", media_pause_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "media_pause", media_pause_mock)
 
     _ = await hass.services.async_call(
         DOMAIN,
@@ -781,8 +782,8 @@ async def test_services_stop_missing_target_state_falls_back_to_stop(
 
     media_stop_mock = AsyncMock()
     media_pause_mock = AsyncMock()
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
-    hass.services.async_register("media_player", "media_pause", media_pause_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "media_pause", media_pause_mock)
 
     _ = await hass.services.async_call(
         DOMAIN,
@@ -833,8 +834,8 @@ async def test_async_stop_target_player_scenarios(
 
     media_stop_mock = AsyncMock()
     media_pause_mock = AsyncMock()
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
-    hass.services.async_register("media_player", "media_pause", media_pause_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "media_pause", media_pause_mock)
 
     ctx = Context(id="test_context")
     await async_stop_target_player(
@@ -869,7 +870,7 @@ async def test_async_stop_target_player_error_logged(
     )
 
     media_stop_mock = AsyncMock(side_effect=HomeAssistantError("Device unreachable"))
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
 
     with caplog.at_level(logging.WARNING, logger="custom_components.abstp_controller"):
         await async_stop_target_player(
@@ -974,7 +975,7 @@ async def test_services_play_resolves_target_player_from_state(
     await async_setup_services(hass)
 
     play_media_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
     hass.states.async_set(
         "media_player.virtual_bedroom",
         "playing",
@@ -1036,8 +1037,8 @@ async def test_services_play_stops_existing_active_session(
 
     play_media_mock = AsyncMock()
     media_stop_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
     hass.states.async_set("media_player.speaker", "playing")
 
     _ = await hass.services.async_call(
@@ -1095,7 +1096,7 @@ async def test_services_play_warns_when_stopping_existing_session_fails(
     await async_setup_services(hass)
 
     play_media_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
     hass.states.async_set("media_player.speaker", "playing")
 
     with caplog.at_level(logging.WARNING, logger="custom_components.abstp_controller"):
@@ -1150,7 +1151,7 @@ async def test_services_stop_resolves_target_player_from_state(
         {"supported_features": int(MediaPlayerEntityFeature.STOP)},
     )
     media_stop_mock = AsyncMock()
-    hass.services.async_register("media_player", "media_stop", media_stop_mock)
+    register_service(hass, "media_player", "media_stop", media_stop_mock)
 
     _ = await hass.services.async_call(
         DOMAIN,
@@ -1264,7 +1265,7 @@ async def test_services_set_speed_resolves_target_player_from_state(
     await async_setup_services(hass)
 
     play_media_mock = AsyncMock()
-    hass.services.async_register("media_player", "play_media", play_media_mock)
+    register_service(hass, "media_player", "play_media", play_media_mock)
     hass.states.async_set(
         "media_player.virtual_bedroom",
         "playing",

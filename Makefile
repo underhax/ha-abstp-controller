@@ -1,4 +1,4 @@
-.PHONY: install frontend-biome frontend-biome-fix frontend-check frontend-test frontend-outdated integration-check integration-test verify frontend-build
+.PHONY: install frontend-biome frontend-biome-fix frontend-check frontend-test frontend-outdated frontend-outdated-all integration-check integration-test integration-outdated verify frontend-build
 
 install:
 	uv venv --allow-existing
@@ -29,8 +29,11 @@ frontend-coverage:
 	npm --prefix frontend ci --ignore-scripts
 	npm --prefix frontend run coverage
 
+frontend-outdated-all:
+	npm --prefix frontend outdated --all
+
 frontend-outdated:
-	npm --prefix frontend outdated --all || true
+	npm --prefix frontend outdated
 
 integration-check:
 	ruff format --check .
@@ -40,6 +43,9 @@ integration-check:
 
 integration-test:
 	pytest
+
+integration-outdated:
+	.venv/bin/pip list --outdated
 
 verify: frontend-biome frontend-check frontend-test integration-check integration-test
 

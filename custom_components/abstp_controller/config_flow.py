@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast, override
 
-import voluptuous as vol
 from aiohttp import ClientError
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -14,6 +13,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import State, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from probatio import Marker, Optional, Required, Schema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -165,11 +165,11 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         )
 
-        schema = vol.Schema(
+        schema = Schema(
             {
-                vol.Required(CONF_URL, default="http://127.0.0.1:8099"): str,
-                vol.Required(CONF_API_KEY): api_key_selector,
-                vol.Optional(
+                Required(CONF_URL, default="http://127.0.0.1:8099"): str,
+                Required(CONF_API_KEY): api_key_selector,
+                Optional(
                     CONF_DEFAULT_SPEED,
                     default=DEFAULT_SPEED,
                 ): speed_selector,
@@ -225,9 +225,9 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         )
 
-        schema = vol.Schema(
+        schema = Schema(
             {
-                vol.Optional(CONF_TARGET_PLAYERS, default=[]): players_selector,
+                Optional(CONF_TARGET_PLAYERS, default=[]): players_selector,
             }
         )
 
@@ -276,14 +276,14 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         name_selector = text_selector(selector.TextSelectorConfig())
 
-        name_schema: dict[vol.Marker, object] = {}
+        name_schema: dict[Marker, object] = {}
         for entity_id in self._target_players:
             default_name = get_entity_friendly_name(self.hass.states.get(entity_id))
-            name_schema[vol.Optional(entity_id, default=default_name)] = name_selector
+            name_schema[Optional(entity_id, default=default_name)] = name_selector
 
         return self.async_show_form(
             step_id="friendly_names",
-            data_schema=vol.Schema(name_schema),
+            data_schema=Schema(name_schema),
         )
 
     async def async_step_reconfigure(
@@ -320,10 +320,10 @@ class AbstpConfigFlow(ConfigFlow, domain=DOMAIN):
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         )
 
-        schema = vol.Schema(
+        schema = Schema(
             {
-                vol.Required(CONF_URL): str,
-                vol.Required(CONF_API_KEY): api_key_selector,
+                Required(CONF_URL): str,
+                Required(CONF_API_KEY): api_key_selector,
             }
         )
 
@@ -452,17 +452,17 @@ class AbstpOptionsFlowHandler(OptionsFlow):
             )
         )
 
-        schema = vol.Schema(
+        schema = Schema(
             {
-                vol.Optional(
+                Optional(
                     CONF_TARGET_PLAYERS,
                     default=current_list,
                 ): players_selector,
-                vol.Optional(
+                Optional(
                     CONF_DEFAULT_SPEED,
                     default=current_speed,
                 ): speed_selector,
-                vol.Optional(
+                Optional(
                     CONF_STREAM_PROXY_MODE,
                     default=current_proxy_mode,
                 ): proxy_mode_selector,
@@ -505,7 +505,7 @@ class AbstpOptionsFlowHandler(OptionsFlow):
         )
         name_selector = text_selector(selector.TextSelectorConfig())
 
-        name_schema: dict[vol.Marker, object] = {}
+        name_schema: dict[Marker, object] = {}
         for entity_id in target_players:
             raw_name = current_names.get(entity_id)
             default_name = (
@@ -513,9 +513,9 @@ class AbstpOptionsFlowHandler(OptionsFlow):
                 if raw_name is not None
                 else get_entity_friendly_name(self.hass.states.get(entity_id))
             )
-            name_schema[vol.Optional(entity_id, default=default_name)] = name_selector
+            name_schema[Optional(entity_id, default=default_name)] = name_selector
 
         return self.async_show_form(
             step_id="friendly_names",
-            data_schema=vol.Schema(name_schema),
+            data_schema=Schema(name_schema),
         )

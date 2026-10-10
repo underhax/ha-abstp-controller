@@ -66,6 +66,7 @@ from custom_components.abstp_controller.media_player import (
     async_setup_entry,
     is_target_player_ready,
 )
+from custom_components.abstp_controller.services import register_service
 from custom_components.abstp_controller.tracker import SessionTracker
 
 
@@ -83,7 +84,7 @@ def _mock_service(
         if raise_exception is not None:
             raise raise_exception
 
-    hass.services.async_register(domain, service, mock_handler)
+    register_service(hass, domain, service, mock_handler)
     return calls
 
 

@@ -26,6 +26,7 @@ from homeassistant.const import (
 )
 
 from custom_components.abstp_controller.api import AbstpApiClient, AbstpApiError
+from custom_components.abstp_controller.services import register_service
 from custom_components.abstp_controller.tracker import (
     SessionTracker,
     is_allowed_player,
@@ -172,7 +173,7 @@ async def test_session_tracker_pause_triggers_stop(hass: HomeAssistant) -> None:
     async def _mock_stop(call: ServiceCall) -> None:
         stop_calls.append(call)
 
-    hass.services.async_register("media_player", "media_stop", _mock_stop)
+    register_service(hass, "media_player", "media_stop", _mock_stop)
 
     entity_id = "media_player.station"
     hass.states.async_set(entity_id, STATE_IDLE)
