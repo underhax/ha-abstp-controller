@@ -1,8 +1,8 @@
 # Audiobookshelf Transcoder Proxy Controller
 
-![Audiobookshelf Transcoder Proxy Controller](custom_components/abstp_controller/brand/logo.png)
+<img src="https://github.com/underhax/ha-abstp-controller/blob/main/custom_components/abstp_controller/brand/logo.png?raw=true" width="100" height="100" alt="Audiobookshelf Transcoder Proxy Controller">
 
-Audiobookshelf Transcoder Proxy Controller is a Home Assistant custom integration and Lovelace card for browsing an Audiobookshelf library through an `abstp` server and playing audiobooks or podcast episodes on Home Assistant media players. The integration creates a dedicated virtual media player for each selected physical player, tracks playback sessions, and provides controls for playback speed, seeking, volume, and mute.
+Audiobookshelf Transcoder Proxy Controller is a Home Assistant custom integration and Lovelace card for browsing an Audiobookshelf library through an [`audiobookshelf-transcoder-proxy` (`abstp`)](https://github.com/underhax/audiobookshelf-transcoder-proxy) and playing audiobooks or podcast episodes on Home Assistant media players. The integration creates a dedicated virtual media player for each selected physical player, tracks playback sessions, and provides controls for playback speed, seeking, volume, and mute.
 
 [![CI](https://github.com/underhax/ha-abstp-controller/actions/workflows/ci.yml/badge.svg)](https://github.com/underhax/ha-abstp-controller/actions/workflows/ci.yml)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
@@ -16,7 +16,7 @@ Tested with:
 - Home Assistant 2026.10.1
 - HACS 2.0.5
 
-The integration requires a separately deployed, reachable [`abstp` server](https://github.com/underhax/audiobookshelf-transcoder-proxy) and media player entities that support `PLAY_MEDIA`. `abstp` connects to Audiobookshelf using its configured URL and Audiobookshelf API key (`ABSTP_ABS_URL`, `ABSTP_ABS_API_KEY`). The Home Assistant integration uses a separate `abstp` proxy API secret. The official `abstp` Docker image includes FFmpeg; standalone deployments require FFmpeg to be installed separately.
+The integration requires a separately deployed, reachable `abstp` and media player entities that support `PLAY_MEDIA`. `abstp` connects to Audiobookshelf using its configured URL and Audiobookshelf API key (`ABSTP_ABS_URL`, `ABSTP_ABS_API_KEY`). The Home Assistant integration uses a separate `abstp` proxy API secret. The official `abstp` Docker image includes FFmpeg; standalone deployments require FFmpeg to be installed separately.
 
 ## Installation
 
