@@ -13,7 +13,7 @@ Audiobookshelf Transcoder Proxy Controller is a Home Assistant custom integratio
 
 Tested with:
 
-- Home Assistant 2026.10.1
+- Home Assistant 2026.10.2
 - HACS 2.0.5
 
 The integration requires a separately deployed, reachable `abstp` and media player entities that support `PLAY_MEDIA`. `abstp` connects to Audiobookshelf using its configured URL and Audiobookshelf API key (`ABSTP_ABS_URL`, `ABSTP_ABS_API_KEY`). The Home Assistant integration uses a separate `abstp` proxy API secret. The official `abstp` Docker image includes FFmpeg; standalone deployments require FFmpeg to be installed separately.
