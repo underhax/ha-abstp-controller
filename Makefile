@@ -1,4 +1,4 @@
-.PHONY: install frontend-biome frontend-biome-fix frontend-biome-migrate frontend-check frontend-test frontend-outdated frontend-outdated-all integration-check integration-test integration-outdated integration-outdated-all verify frontend-build
+.PHONY: install frontend-biome frontend-biome-fix frontend-biome-migrate frontend-check frontend-test frontend-outdated frontend-outdated-all integration-check integration-test integration-outdated integration-outdated-all secrets-scan verify frontend-build
 
 install:
 	uv venv --allow-existing
@@ -52,6 +52,9 @@ integration-outdated:
 
 integration-outdated-all:
 	uv pip list --outdated
+
+secrets-scan:
+	gitleaks detect --source . --no-git --no-color -v --redact
 
 verify: frontend-biome frontend-check frontend-test integration-check integration-test
 
