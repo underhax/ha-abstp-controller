@@ -863,6 +863,40 @@ describe('groupBooksBySeries()', (): void => {
     expect(group.books[1]?.id).toBe('book_2');
   });
 
+  it('keeps the existing author when the first sorted book has an empty author', (): void => {
+    const books: MediaItem[] = [
+      {
+        author: 'Series Author',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_2',
+        media_type: 'book',
+        progress: 0,
+        sequence: '2',
+        sequence_num: 2,
+        series: 'Series',
+        series_id: 'series_1',
+        title: 'Second Book',
+      },
+      {
+        author: '',
+        cover_url: '',
+        duration: 1000,
+        id: 'book_1',
+        media_type: 'book',
+        progress: 0,
+        sequence: '1',
+        sequence_num: 1,
+        series: 'Series',
+        series_id: 'series_1',
+        title: 'First Book',
+      },
+    ];
+
+    const grouped = groupBooksBySeries(books);
+    expect((grouped[0] as SeriesGroup).author).toBe('Series Author');
+  });
+
   it('retains single book series as standalone media item', (): void => {
     const books: MediaItem[] = [
       {

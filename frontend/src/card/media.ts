@@ -208,6 +208,10 @@ export function matchesSeries(book: MediaItem, seriesIdOrTitle: string): boolean
   return (book.series_id?.trim() || book.series?.trim()) === seriesIdOrTitle;
 }
 
+function getAuthorOrFallback(author: string | undefined, fallback: string): string {
+  return author ? author : fallback;
+}
+
 export function groupBooksBySeries(books: MediaItem[]): Array<MediaItem | SeriesGroup> {
   const seriesMap = new Map<string, { group: SeriesGroup; index: number }>();
   const result: Array<MediaItem | SeriesGroup> = [];
@@ -244,7 +248,7 @@ export function groupBooksBySeries(books: MediaItem[]): Array<MediaItem | Series
       result[index] = group.books[0] as MediaItem;
     } else {
       sortBooksBySequence(group.books);
-      group.author = group.books[0]?.author || group.author;
+      group.author = getAuthorOrFallback(group.books[0]?.author, group.author);
     }
   }
 
