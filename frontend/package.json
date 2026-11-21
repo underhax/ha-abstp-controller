@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "custom-card-helpers": "^2.0.0",
+    "custom-card-helpers": "^2.2.1",
     "lit": "^3.1.2",
     "lit-element": "^4.2.2",
     "lit-html": "^3.3.3"
